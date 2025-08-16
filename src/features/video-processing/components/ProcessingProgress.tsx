@@ -35,11 +35,6 @@ export function ProcessingProgress({
                 <span className="font-medium text-gray-900">
                   {progressPhase || "Processing Video..."}
                 </span>
-                {progressStage && (
-                  <span className="text-sm text-gray-600">
-                    {progressStage}
-                  </span>
-                )}
               </div>
               <div className="text-right">
                 <span className="text-lg font-semibold text-primary">

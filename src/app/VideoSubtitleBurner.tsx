@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AlertCircle, Clock } from 'lucide-react'
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { CircularPerformanceMonitor } from "@/components/CircularPerformanceMonitor"
+import { BatteryIndicator } from "@/components/BatteryIndicator"
 import { AdvancedSubtitleControls } from "@/components/AdvancedSubtitleControls"
 import { SubtitlePreviewCanvas } from "@/components/SubtitlePreviewCanvas"
 
@@ -220,6 +221,9 @@ function VideoSubtitleBurnerCore() {
 
   return (
     <div className="p-8 relative">
+      {/* Battery Indicator */}
+      <BatteryIndicator />
+      
       {/* Circular Performance Monitor */}
       <CircularPerformanceMonitor
         memoryUsage={memoryUsage}

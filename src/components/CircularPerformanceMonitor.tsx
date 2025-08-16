@@ -34,12 +34,8 @@ export const CircularPerformanceMonitor: React.FC<CircularPerformanceMonitorProp
     return "text-primary"
   }
 
-  const getProgressColor = () => {
-    if (!isProcessing) return "#e5e7eb"
-    if (memoryPercentage > 80) return "#ef4444"
-    if (memoryPercentage > 60) return "#eab308"
-    return "oklch(0.647 0.164 42.18)" // Primary color
-  }
+
+  const getGradientId = () => `memoryGradient-${Math.round(memoryPercentage)}`
 
   return (
     <div
@@ -58,6 +54,34 @@ export const CircularPerformanceMonitor: React.FC<CircularPerformanceMonitorProp
             width="80"
             height="80"
           >
+            <defs>
+              <linearGradient 
+                id={getGradientId()} 
+                x1="0%" 
+                y1="0%" 
+                x2="100%" 
+                y2="100%"
+                gradientUnits="objectBoundingBox"
+              >
+                {memoryPercentage <= 30 ? (
+                  <>
+                    <stop offset="0%" stopColor="#e5e7eb" />
+                    <stop offset="100%" stopColor="oklch(0.647 0.164 42.18)" />
+                  </>
+                ) : memoryPercentage <= 70 ? (
+                  <>
+                    <stop offset="0%" stopColor="oklch(0.647 0.164 42.18)" />
+                    <stop offset="100%" stopColor="oklch(0.647 0.164 42.18)" />
+                  </>
+                ) : (
+                  <>
+                    <stop offset="0%" stopColor="oklch(0.647 0.164 42.18)" />
+                    <stop offset="100%" stopColor="#ef4444" />
+                  </>
+                )}
+              </linearGradient>
+            </defs>
+            
             <circle
               cx="40"
               cy="40"
@@ -71,14 +95,14 @@ export const CircularPerformanceMonitor: React.FC<CircularPerformanceMonitorProp
               cx="40"
               cy="40"
               r={radius}
-              stroke={getProgressColor()}
+              stroke={isProcessing ? `url(#${getGradientId()})` : "#e5e7eb"}
               strokeWidth="3"
               fill="none"
               strokeLinecap="round"
               strokeDasharray={strokeDasharray}
               strokeDashoffset={strokeDashoffset}
               style={{
-                transition: 'stroke-dashoffset 0.3s ease-in-out'
+                transition: 'stroke-dashoffset 0.3s ease-in-out, stroke 0.3s ease-in-out'
               }}
             />
           </svg>
