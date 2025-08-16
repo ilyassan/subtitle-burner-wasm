@@ -1,23 +1,89 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg"
 import { fetchFile } from "@ffmpeg/util"
-import { SubtitleEntry, VideoInfo, SubtitleStats, GoogleFont } from "@/types/types"
+import { 
+  SubtitleEntry, 
+  VideoInfo, 
+  SubtitleStats, 
+  GoogleFont, 
+  SubtitleStyle, 
+  ProcessingOptions, 
+  PerformanceMetrics
+} from "@/types/types"
+import { ProgressManager } from "./ProgressManager"
+
+interface PerformanceMemory {
+  usedJSHeapSize: number
+  totalJSHeapSize: number
+  jsHeapSizeLimit: number
+}
+
+// Extend Window interface for gc function
+declare global {
+  interface Window {
+    gc?: () => void
+  }
+}
 
 export class SubtitleProcessor {
   private ffmpeg: FFmpeg
   private loadedFonts: Set<string> = new Set()
+  private performanceMetrics: PerformanceMetrics[] = []
+  private memoryUsage: number = 0
+  private tempFileCounter: number = 0
+  private diskCacheEnabled: boolean = true
+  private memoryLimit: number = 500 // MB default
+  private isFFmpegLoaded: boolean = false
+  private isFFmpegLoading: boolean = false
+  private progressManager: ProgressManager
 
   constructor(ffmpeg: FFmpeg) {
     this.ffmpeg = ffmpeg
+    this.progressManager = new ProgressManager()
   }
 
   async loadFFmpeg({ onLog, onProgress }: { onLog: (message: string) => void; onProgress: (progress: number) => void }) {
-    this.ffmpeg.on("log", ({ message }) => onLog(message))
-    this.ffmpeg.on("progress", ({ progress }) => onProgress(progress))
+    // Initialize progress manager
+    this.progressManager.reset()
+    this.progressManager.onLog(onLog)
+    this.progressManager.onProgress((update) => onProgress(update.phaseProgress / 100))
 
-    await this.ffmpeg.load({
-      coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
-      wasmURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm",
-    })
+    // Prevent multiple loading attempts
+    if (this.isFFmpegLoaded) {
+      this.progressManager.complete("FFmpeg already loaded")
+      return
+    }
+    
+    if (this.isFFmpegLoading) {
+    // Already in preparing-files phase, just continue
+      return
+    }
+
+    this.isFFmpegLoading = true
+    this.progressManager.setPhase('parsing-subtitles', "Loading FFmpeg...")
+
+    try {
+      // Set up FFmpeg log handler for progress tracking during processing
+      this.ffmpeg.on("log", ({ message }) => {
+        onLog(message)
+      })
+      this.ffmpeg.on("progress", ({ progress }) => {
+        this.progressManager.updatePhase(progress * 100, "Loading FFmpeg core...")
+      })
+      
+      this.progressManager.updatePhase(10, "Loading FFmpeg core...")
+      await this.ffmpeg.load({
+        coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
+        wasmURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm"
+      })
+      
+      this.progressManager.complete("FFmpeg loaded successfully")
+      this.isFFmpegLoaded = true
+    } catch (error) {
+      this.progressManager.error(`FFmpeg loading failed: ${error}`, error instanceof Error ? error : new Error(String(error)))
+      throw error
+    } finally {
+      this.isFFmpegLoading = false
+    }
   }
 
   async fetchGoogleFonts(): Promise<GoogleFont[]> {
@@ -56,10 +122,12 @@ export class SubtitleProcessor {
 
     return new Promise((resolve, reject) => {
       video.onloadedmetadata = () => {
-        const info = {
+        const info: VideoInfo = {
           width: video.videoWidth,
           height: video.videoHeight,
-          duration: video.duration
+          duration: video.duration,
+          size: file.size,
+          fps: 30 // Default, can be enhanced with FFprobe later
         }
         URL.revokeObjectURL(video.src)
         resolve(info)
@@ -76,10 +144,15 @@ export class SubtitleProcessor {
         endTime: Math.min(sub.endTime, videoDuration)
       }))
 
-    const stats = {
+    const totalSubtitleDuration = filteredSubtitles.reduce((sum, sub) => sum + (sub.endTime - sub.startTime), 0)
+    const avgDuration = filteredSubtitles.length > 0 ? totalSubtitleDuration / filteredSubtitles.length : 0
+
+    const stats: SubtitleStats = {
       total: subtitles.length,
       relevant: filteredSubtitles.length,
-      filtered: subtitles.length - filteredSubtitles.length
+      filtered: subtitles.length - filteredSubtitles.length,
+      avgDuration,
+      totalDuration: totalSubtitleDuration
     }
 
     return { filteredSubtitles, stats }
@@ -154,42 +227,49 @@ export class SubtitleProcessor {
     onLog: (message: string) => void
   ): Promise<{[key: string]: Uint8Array}> {
     const subtitleImages: {[key: string]: Uint8Array} = {}
-    onLog(`Creating ${subtitles.length} subtitle images with font ${fontFamily}`)
+    onLog(`🖼️ Creating ${subtitles.length} subtitle images with font ${fontFamily}`)
 
-    for (let i = 0; i < subtitles.length; i++) {
-      const subtitle = subtitles[i]
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')!
+    // Process in small batches to keep UI responsive
+    const batchSize = 5
+    
+    for (let batchStart = 0; batchStart < subtitles.length; batchStart += batchSize) {
+      const batch = subtitles.slice(batchStart, batchStart + batchSize)
+      
+      for (const subtitle of batch) {
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')!
 
-      ctx.clearRect(0, 0, width, height)
-      ctx.font = `${fontSize}px '${fontFamily}', sans-serif`
-      ctx.fillStyle = fontColor
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'bottom'
-      ctx.strokeStyle = '#000000'
-      ctx.lineWidth = 2
+        ctx.clearRect(0, 0, width, height)
+        ctx.font = `${fontSize}px '${fontFamily}', sans-serif`
+        ctx.fillStyle = fontColor
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'bottom'
+        ctx.strokeStyle = '#000000'
+        ctx.lineWidth = 2
 
-      const x = width / 2
-      const y = height - 50
+        const x = width / 2
+        const y = height - 50
 
-      ctx.strokeText(subtitle.text, x, y)
-      ctx.fillText(subtitle.text, x, y)
+        ctx.strokeText(subtitle.text, x, y)
+        ctx.fillText(subtitle.text, x, y)
 
-      const blob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob((blob) => resolve(blob!), 'image/png')
-      })
+        const blob = await new Promise<Blob>((resolve) => {
+          canvas.toBlob((blob) => resolve(blob!), 'image/png')
+        })
 
-      const arrayBuffer = await blob.arrayBuffer()
-      subtitleImages[`subtitle_${subtitle.index}.png`] = new Uint8Array(arrayBuffer)
-
-      const imageProgress = Math.round((i + 1) / subtitles.length * 30)
-      onProgress(imageProgress)
-
-      if (i % 5 === 0 || i === subtitles.length - 1) {
-        onLog(`Created ${i + 1}/${subtitles.length} subtitle images`)
+        const arrayBuffer = await blob.arrayBuffer()
+        subtitleImages[`subtitle_${subtitle.index}.png`] = new Uint8Array(arrayBuffer)
       }
+      
+      const progress = Math.round((batchStart + batch.length) / subtitles.length * 30)
+      onProgress(progress)
+      
+      // Allow UI to update between batches
+      await new Promise(resolve => setTimeout(resolve, 0))
+      
+      onLog(`✅ Created ${Math.min(batchStart + batchSize, subtitles.length)}/${subtitles.length} subtitle images`)
     }
 
     return subtitleImages
@@ -204,7 +284,8 @@ export class SubtitleProcessor {
     fontColor,
     fontFamily,
     onLog,
-    onProgress
+    onProgress,
+    processingOptions
   }: {
     videoFile: File
     relevantSubtitles: SubtitleEntry[]
@@ -214,134 +295,397 @@ export class SubtitleProcessor {
     fontColor: string
     fontFamily: string
     onLog: (message: string) => void
-    onProgress: (progress: number) => void
+    onProgress: (progress: number, phase?: 'subtitle-generation' | 'video-processing') => void
+    processingOptions?: ProcessingOptions
   }): Promise<string> {
+    const defaultOptions: ProcessingOptions = {
+      quality: 'balanced',
+      crf: 23,
+      memoryLimit: 500,
+      threads: 0,
+      useDiskCache: true
+    }
+    const options = { ...defaultOptions, ...processingOptions }
+
+    // Initialize progress manager for this processing session
+    this.progressManager.reset()
+    this.progressManager.onLog(onLog)
+    this.progressManager.onProgress((update) => {
+      let phaseType: 'subtitle-generation' | 'video-processing' | undefined = undefined
+      if (update.phase === 'parsing-subtitles') {
+        phaseType = 'subtitle-generation'
+      } else if (update.phase === 'processing-video') {
+        phaseType = 'video-processing'
+      }
+      onProgress(update.phaseProgress, phaseType)
+    })
+
+    this.progressManager.setPhase('parsing-subtitles', `Starting processing for ${relevantSubtitles.length} subtitles`)
+
+    // Use sequential processing with optimizations
+    return await this.processVideoSequential(videoFile, relevantSubtitles, videoInfo, outputFormat, fontSize, fontColor, fontFamily, onLog, onProgress, options)
+  }
+
+  async processVideoSequential(
+    videoFile: File,
+    relevantSubtitles: SubtitleEntry[],
+    videoInfo: VideoInfo,
+    outputFormat: string,
+    fontSize: string,
+    fontColor: string,
+    fontFamily: string,
+    onLog: (message: string) => void,
+    onProgress: (progress: number, phase?: 'subtitle-generation' | 'video-processing') => void,
+    options?: ProcessingOptions
+  ): Promise<string> {
+    const startTime = performance.now()
     const videoFileName = "input.mp4"
     const outputFileName = `output.${outputFormat}`
-
-    onLog(`Starting optimized processing: ${relevantSubtitles.length} relevant subtitles for ${videoInfo.duration.toFixed(1)}s video`)
-    onLog(`Writing video file: ${videoFileName}`)
-    await this.ffmpeg.writeFile(videoFileName, await fetchFile(videoFile))
-
-    const subtitleImages = await this.createSubtitleImages(relevantSubtitles, videoInfo.width, videoInfo.height, fontSize, fontColor, fontFamily, onProgress, onLog)
-
-    onLog("Writing subtitle images to FFmpeg")
-    for (const [filename, data] of Object.entries(subtitleImages)) {
-      await this.ffmpeg.writeFile(filename, data)
-    }
-    onProgress(40)
-
-    onLog("Creating video with subtitle overlays")
-
-    if (relevantSubtitles.length <= 20) {
-      try {
-        let filterComplex = '[0:v]'
-        let overlayCount = 0
-
-        for (const subtitle of relevantSubtitles) {
-          const inputIndex = overlayCount + 1
-
-          if (overlayCount === 0) {
-            filterComplex += `[${inputIndex}:v]overlay=0:0:enable='between(t,${subtitle.startTime.toFixed(3)},${subtitle.endTime.toFixed(3)})'[v${overlayCount}]`
-          } else {
-            filterComplex += `;[v${overlayCount-1}][${inputIndex}:v]overlay=0:0:enable='between(t,${subtitle.startTime.toFixed(3)},${subtitle.endTime.toFixed(3)})'[v${overlayCount}]`
-          }
-          overlayCount++
-        }
-
-        const inputs = ['-i', videoFileName]
-        for (const subtitle of relevantSubtitles) {
-          inputs.push('-i', `subtitle_${subtitle.index}.png`)
-        }
-
-        const args = [
-          ...inputs,
-          '-filter_complex', filterComplex,
-          '-map', `[v${overlayCount-1}]`,
-          '-map', '0:a',
-          '-c:v', outputFormat === "mp4" ? "libx264" : "libvpx-vp9",
-          '-preset', 'ultrafast',
-          '-crf', '28',
-          '-c:a', 'copy',
-          '-y', outputFileName
-        ]
-
-        onLog(`Executing complex overlay for ${relevantSubtitles.length} subtitles`)
-        await this.ffmpeg.exec(args)
-        onLog("✅ Complex overlay method successful")
-      } catch (complexError) {
-        onLog(`Complex overlay failed, using sequential method: ${complexError}`)
-        throw complexError
-      }
-    } else {
-      onLog(`Using sequential processing for ${relevantSubtitles.length} subtitles`)
-
-      let currentInput = videoFileName
-      let tempCounter = 0
-
-      for (let i = 0; i < relevantSubtitles.length; i++) {
-        const subtitle = relevantSubtitles[i]
-        const isLast = i === relevantSubtitles.length - 1
-        const tempOutput = isLast ? outputFileName : `temp_${tempCounter}.mp4`
-        const subtitleImage = `subtitle_${subtitle.index}.png`
-
-        const simpleArgs = [
-          '-i', currentInput,
-          '-i', subtitleImage,
-          '-filter_complex', `[0:v][1:v]overlay=0:0:enable='between(t,${subtitle.startTime.toFixed(3)},${subtitle.endTime.toFixed(3)})'`,
-          '-c:v', 'libx264',
-          '-preset', 'ultrafast',
-          '-crf', '28',
-          '-c:a', 'copy',
-          '-y', tempOutput
-        ]
-
-        const sequentialProgress = 40 + Math.round((i + 1) / relevantSubtitles.length * 50)
-        onProgress(sequentialProgress)
-
-        onLog(`Processing subtitle ${i + 1}/${relevantSubtitles.length} (${subtitle.startTime.toFixed(1)}s-${subtitle.endTime.toFixed(1)}s)`)
-        await this.ffmpeg.exec(simpleArgs)
-
-        if (currentInput !== videoFileName) {
-          try {
-            await this.ffmpeg.deleteFile(currentInput)
-          } catch {
-            // Ignore cleanup errors
-          }
-        }
-
-        currentInput = tempOutput
-        tempCounter++
-      }
-    }
-
-    onProgress(95)
-    onLog(`Reading final output file: ${outputFileName}`)
-    const data = await this.ffmpeg.readFile(outputFileName)
-
-    if (!data || (data as Uint8Array).length === 0) {
-      throw new Error("Final output file is empty")
-    }
-
-    const mimeType = outputFormat === "mp4" ? "video/mp4" : "video/webm"
-    const url = URL.createObjectURL(new Blob([typeof data === 'string' ? data : new Uint8Array(data)], { type: mimeType }))
-
-    onLog("Cleaning up temporary files")
+    
     try {
-      await this.ffmpeg.deleteFile(videoFileName)
-      await this.ffmpeg.deleteFile(outputFileName)
-      for (const subtitle of relevantSubtitles) {
-        try {
-          await this.ffmpeg.deleteFile(`subtitle_${subtitle.index}.png`)
-        } catch {
-          // Ignore cleanup errors
-        }
+      // Phase 1: Parsing Subtitles (0-100%)
+      this.progressManager.updatePhase(10, "Loading video file...")
+      
+      await this.ffmpeg.writeFile(videoFileName, await fetchFile(videoFile))
+      this.progressManager.updatePhase(30, "Creating subtitle images...")
+      
+      const subtitleImages = await this.createOptimizedSubtitleImages(
+        relevantSubtitles, 
+        videoInfo.width, 
+        videoInfo.height, 
+        fontSize, 
+        fontColor, 
+        fontFamily, 
+        (prog) => this.progressManager.updatePhase(30 + (prog * 0.7), `Creating subtitle image ${Math.round(prog * relevantSubtitles.length / 100)}/${relevantSubtitles.length}`),
+        onLog
+      )
+
+      // Images are already written to FFmpeg disk cache during creation for memory optimization
+      if (!this.diskCacheEnabled && Object.keys(subtitleImages).length > 0) {
+        await this.batchWriteFiles(subtitleImages)
       }
-    } catch {
-      onLog("Note: Some files couldn't be cleaned up (this is normal)")
+      
+      this.progressManager.updatePhase(100, "All subtitle images created")
+
+      // Phase 2: Processing Video (0-100%)
+      this.progressManager.setPhase('processing-video', "Starting video processing...")
+      await this.processWithUnifiedFilter(
+        videoFileName,
+        outputFileName,
+        relevantSubtitles,
+        outputFormat,
+        (prog) => this.progressManager.updatePhase(prog, `Processing video: ${prog.toFixed(1)}%`),
+        onLog,
+        options,
+        videoInfo.duration
+      )
+
+      // Read final output file and complete phase 2
+      this.progressManager.updatePhase(100, "Reading final output file...")
+      const data = await this.ffmpeg.readFile(outputFileName)
+
+      if (!data || (data as Uint8Array).length === 0) {
+        throw new Error("Final output file is empty")
+      }
+
+      // Cleanup
+      await this.cleanupSequentialFiles(videoFileName, outputFileName, relevantSubtitles)
+      
+      this.progressManager.updatePhase(100, "Processing completed successfully")
+      const processingTime = performance.now() - startTime
+      this.progressManager.complete(`Processing completed in ${(processingTime/1000).toFixed(1)}s`)
+
+      // Record performance metrics
+      this.recordPerformanceMetrics({
+        startTime,
+        endTime: performance.now(),
+        totalDuration: videoInfo.duration,
+        processingTime,
+        subtitlesProcessed: relevantSubtitles.length,
+        strategy: 'optimized_sequential',
+        avgTimePerSubtitle: processingTime / relevantSubtitles.length
+      })
+
+      const mimeType = outputFormat === "mp4" ? "video/mp4" : "video/webm"
+      return URL.createObjectURL(new Blob([typeof data === 'string' ? data : new Uint8Array(data)], { type: mimeType }))
+
+    } catch (error) {
+      this.progressManager.error(`Processing failed: ${error}`, error instanceof Error ? error : new Error(String(error)))
+      // Comprehensive cleanup on error/cancellation
+      await this.cleanupSequentialFiles(videoFileName, outputFileName, relevantSubtitles)
+      await this.forceCleanup(relevantSubtitles)
+      throw error
+    } finally {
+      // Always ensure comprehensive cleanup when processing ends
+      await this.forceCleanup(relevantSubtitles)
+    }
+  }
+
+  private async createOptimizedSubtitleImages(
+    subtitles: SubtitleEntry[],
+    width: number,
+    height: number,
+    fontSize: string,
+    fontColor: string,
+    fontFamily: string,
+    onProgress: (progress: number) => void,
+    onLog: (message: string) => void
+  ): Promise<{[key: string]: Uint8Array}> {
+    const subtitleImages: {[key: string]: Uint8Array} = {}
+    
+    // Dynamic batch size based on available memory and subtitle count
+    const memoryUsageMB = this.getMemoryUsage() / (1024 * 1024)
+    const availableMemoryMB = this.memoryLimit - memoryUsageMB
+    
+    // Calculate optimal batch size for memory management
+    let batchSize: number
+    if (subtitles.length > 100) {
+      batchSize = Math.max(2, Math.min(5, Math.floor(availableMemoryMB / 10))) // Conservative for large subtitle sets
+    } else if (subtitles.length > 50) {
+      batchSize = Math.max(3, Math.min(8, Math.floor(availableMemoryMB / 8)))
+    } else {
+      batchSize = Math.max(5, Math.min(10, Math.floor(availableMemoryMB / 5)))
+    }
+    
+    onLog(`🖼️ Creating ${subtitles.length} subtitle images in memory-optimized batches of ${batchSize}`)
+    onLog(`💾 Available memory: ${availableMemoryMB.toFixed(1)}MB / ${this.memoryLimit}MB`)
+
+    // Pre-create canvas for reuse
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')!
+    
+    // Pre-configure canvas context
+    ctx.font = `${fontSize}px '${fontFamily}', Arial, sans-serif`
+    ctx.fillStyle = fontColor
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'bottom'
+    ctx.strokeStyle = '#000000'
+    ctx.lineWidth = 2
+
+    const x = width / 2
+    const y = height - 50
+    
+    for (let batchStart = 0; batchStart < subtitles.length; batchStart += batchSize) {
+      // Check memory pressure before each batch
+      const currentMemoryMB = this.getMemoryUsage() / (1024 * 1024)
+      if (currentMemoryMB > this.memoryLimit * 0.9) {
+        onLog(`⚠️ High memory usage detected (${currentMemoryMB.toFixed(1)}MB), forcing garbage collection...`)
+        // Force garbage collection if available
+        if (window.gc) {
+          window.gc()
+        }
+        // Small delay to allow memory cleanup
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      
+      const batch = subtitles.slice(batchStart, batchStart + batchSize)
+      
+      // Process batch sequentially to minimize memory spikes
+      for (let i = 0; i < batch.length; i++) {
+        const subtitle = batch[i]
+        
+        // Clear and draw
+        ctx.clearRect(0, 0, width, height)
+        ctx.strokeText(subtitle.text, x, y)
+        ctx.fillText(subtitle.text, x, y)
+
+        const blob = await new Promise<Blob>((resolve) => {
+          canvas.toBlob((blob) => resolve(blob!), 'image/png', 0.8)
+        })
+
+        const arrayBuffer = await blob.arrayBuffer()
+        const filename = `subtitle_${subtitle.index}.png`
+        subtitleImages[filename] = new Uint8Array(arrayBuffer)
+        
+        // Immediately write to FFmpeg to free up memory
+        if (this.diskCacheEnabled) {
+          await this.ffmpeg.writeFile(filename, subtitleImages[filename])
+          delete subtitleImages[filename] // Remove from memory after writing to disk
+        }
+
+        // Update progress for individual subtitle within batch
+        const individualProgress = Math.round(((batchStart + i + 1) / subtitles.length) * 100)
+        onProgress(individualProgress)
+      }
+      
+      // Yield control to prevent UI blocking and allow memory cleanup
+      await new Promise(resolve => setTimeout(resolve, 5))
+      
+      const completedCount = Math.min(batchStart + batchSize, subtitles.length)
+      onLog(`✅ Created ${completedCount}/${subtitles.length} subtitle images`)
     }
 
-    return url
+    return subtitleImages
+  }
+
+  private async batchWriteFiles(
+    subtitleImages: {[key: string]: Uint8Array}
+  ): Promise<void> {
+    const filenames = Object.keys(subtitleImages)
+    const batchSize = 5 // Write files in small batches to prevent memory spikes
+    
+    for (let i = 0; i < filenames.length; i += batchSize) {
+      const batch = filenames.slice(i, i + batchSize)
+      const writePromises = batch.map(filename => 
+        this.ffmpeg.writeFile(filename, subtitleImages[filename])
+      )
+      
+      await Promise.all(writePromises)
+      
+      // Small delay to prevent overwhelming the system
+      if (i + batchSize < filenames.length) {
+        await new Promise(resolve => setTimeout(resolve, 1))
+      }
+    }
+  }
+
+  private parseFFmpegTime(timeStr: string): number {
+    // Parse FFmpeg time format: HH:MM:SS.SS or HH:MM:SS,SS or MM:SS.SS or SS.SS
+    try {
+      // Normalize comma to dot for decimal separator
+      const normalizedTime = timeStr.replace(',', '.')
+      const parts = normalizedTime.split(':').map(p => parseFloat(p))
+      
+      if (parts.length === 3) {
+        // HH:MM:SS.SS format
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+      } else if (parts.length === 2) {
+        // MM:SS.SS format
+        return parts[0] * 60 + parts[1]
+      } else if (parts.length === 1) {
+        // SS.SS format
+        return parts[0]
+      }
+      return 0
+    } catch {
+      return 0 // Fallback for any parsing errors
+    }
+  }
+
+  private async processWithUnifiedFilter(
+    inputFileName: string,
+    outputFileName: string,
+    subtitles: SubtitleEntry[],
+    outputFormat: string,
+    onProgress: (progress: number) => void,
+    onLog: (message: string) => void,
+    options?: ProcessingOptions,
+    videoDuration?: number
+  ): Promise<void> {
+
+    // Phase 2 starts at 0% - Building optimized filter complex
+    this.progressManager.updatePhase(0, "Building optimized filter complex...")
+    
+    // Build optimized filter complex for all subtitles at once
+    const filterComplex = this.buildOptimizedFilterComplex(subtitles)
+    
+    // Small progress increment for setup tasks
+    this.progressManager.updatePhase(2, "Preparing FFmpeg configuration...")
+    
+    // Determine optimal settings based on options
+    const preset = options?.quality === 'fast' ? 'faster' : 
+                  options?.quality === 'high' ? 'medium' : 'fast'
+    const crf = options?.crf || (options?.quality === 'fast' ? 26 : 
+                                options?.quality === 'high' ? 20 : 23)
+    const threads = options?.threads || 0 // 0 means auto (all available)
+    
+    // Prepare FFmpeg arguments with optimized settings for maximum performance
+    const ffmpegArgs = [
+      '-i', inputFileName,
+      // Add all subtitle images as inputs
+      ...subtitles.flatMap(sub => ['-i', `subtitle_${sub.index}.png`]),
+      '-filter_complex', filterComplex,
+      '-map', '[final_output]',
+      '-map', '0:a?', // Include audio if present
+      '-c:v', 'libx264',
+      '-preset', preset, // Use dynamic preset based on quality setting
+      '-crf', crf.toString(), // Dynamic CRF based on quality
+      '-c:a', 'copy', // Copy audio without re-encoding
+      '-movflags', '+faststart', // Web optimization for progressive download
+      '-avoid_negative_ts', 'make_zero', // Handle negative timestamps
+      '-threads', threads.toString(), // Use specified thread count
+      '-tune', 'fastdecode', // Optimize for faster decoding
+      '-bf', '2', // B-frames for better compression
+      '-g', '250', // GOP size for web streaming
+      '-pix_fmt', 'yuv420p', // Ensure compatibility
+      '-y', outputFileName
+    ]
+    
+    // Setup complete - now starting the heavy video encoding work
+    this.progressManager.updatePhase(0, `Starting video encoding with ${threads === 0 ? 'all available' : threads} threads (preset: ${preset}, CRF: ${crf})`)
+    
+    // Enhanced progress tracking using the progress manager
+    const progressAwareLogHandler = ({ message }: { message: string }) => {
+      // Always log the message first
+      onLog(message)
+      
+      // Let the progress manager handle FFmpeg log parsing for progress tracking
+      // This will automatically update progress from ~5% to ~95% based on video encoding progress
+      this.progressManager.parseFFmpegLog(message, videoDuration)
+    }
+    
+    // Add temporary progress tracking
+    this.ffmpeg.on("log", progressAwareLogHandler)
+    
+    try {
+      await this.ffmpeg.exec(ffmpegArgs)
+      // FFmpeg completed - finish the phase at 100%
+      this.progressManager.updatePhase(100, "Video encoding completed successfully")
+    } catch (error) {
+      throw error
+    } finally {
+      // Remove the progress handler to prevent memory leaks
+      this.ffmpeg.off("log", progressAwareLogHandler)
+    }
+  }
+
+  private buildOptimizedFilterComplex(subtitles: SubtitleEntry[]): string {
+    if (subtitles.length === 0) {
+      return '[0:v]copy[final_output]'
+    }
+    
+    // Build efficient filter complex with all overlays
+    let filterComplex = '[0:v]'
+    
+    subtitles.forEach((subtitle, index) => {
+      const inputIndex = index + 1 // Subtitle images start from input index 1
+      const outputLabel = index === subtitles.length - 1 ? 'final_output' : `overlay${index}`
+      
+      if (index === 0) {
+        // First overlay: overlay onto the original video
+        filterComplex += `[${inputIndex}:v]overlay=0:0:enable='between(t,${subtitle.startTime.toFixed(3)},${subtitle.endTime.toFixed(3)})'[${outputLabel}]`
+      } else {
+        // Subsequent overlays: overlay onto the previous result
+        filterComplex += `;[overlay${index-1}][${inputIndex}:v]overlay=0:0:enable='between(t,${subtitle.startTime.toFixed(3)},${subtitle.endTime.toFixed(3)})'[${outputLabel}]`
+      }
+    })
+    
+    return filterComplex
+  }
+
+  private async cleanupSequentialFiles(
+    videoFileName: string, 
+    outputFileName: string, 
+    subtitles: SubtitleEntry[]
+  ): Promise<void> {
+    const cleanupPromises: Promise<void>[] = []
+    
+    // Cleanup main files
+    cleanupPromises.push(
+      this.ffmpeg.deleteFile(videoFileName).catch(() => {}).then(() => {}),
+      this.ffmpeg.deleteFile(outputFileName).catch(() => {}).then(() => {})
+    )
+    
+    // Cleanup subtitle images
+    for (const subtitle of subtitles) {
+      cleanupPromises.push(
+        this.ffmpeg.deleteFile(`subtitle_${subtitle.index}.png`).catch(() => {}).then(() => {})
+      )
+    }
+    
+    await Promise.all(cleanupPromises)
   }
 
   private convertVttToSrt(vttContent: string): string {
@@ -415,5 +759,250 @@ export class SubtitleProcessor {
       return `${hours}:${minutes}:${seconds},${milliseconds}`
     }
     return assTime
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+  private async cleanupSegmentFiles(segmentFiles: string[]) {
+    for (const file of segmentFiles) {
+      try {
+        await this.ffmpeg.deleteFile(file)
+      } catch {}
+    }
+    try {
+      await this.ffmpeg.deleteFile('concat_list.txt')
+      await this.ffmpeg.deleteFile('input.mp4')
+    } catch {}
+  }
+
+  /**
+   * Comprehensive cleanup of all FFmpeg memory and files
+   * Call this on both cancellation and completion to ensure clean state
+   */
+  async forceCleanup(relevantSubtitles?: SubtitleEntry[]): Promise<void> {
+    try {
+      // Remove all event listeners to prevent memory leaks
+      // Note: FFmpeg event handlers are removed in specific contexts where they're added
+      
+      // Clean up all video and output files
+      const filesToClean = [
+        'input.mp4',
+        'output.mp4',
+        'output.webm',
+        'output.mkv',
+        'output.avi',
+        'concat_list.txt'
+      ]
+      
+      // Clean up subtitle image files if provided
+      if (relevantSubtitles) {
+        for (const subtitle of relevantSubtitles) {
+          filesToClean.push(`subtitle_${subtitle.index}.png`)
+        }
+      } else {
+        // Clean up common subtitle files (fallback)
+        for (let i = 0; i < 1000; i++) {
+          filesToClean.push(`subtitle_${i}.png`)
+        }
+      }
+      
+      // Execute cleanup in parallel for performance
+      const cleanupPromises = filesToClean.map(async (file) => {
+        try {
+          await this.ffmpeg.deleteFile(file)
+        } catch {}
+      })
+      
+      await Promise.all(cleanupPromises)
+      
+      // Reset progress manager
+      this.progressManager.reset()
+      
+      console.log('🧹 FFmpeg cleanup completed - all files and memory freed')
+      
+    } catch (error) {
+      console.warn('Warning during FFmpeg cleanup:', error)
+    }
+  }
+
+  private recordPerformanceMetrics(metrics: PerformanceMetrics) {
+    this.performanceMetrics.push(metrics)
+    // Keep only last 10 measurements
+    if (this.performanceMetrics.length > 10) {
+      this.performanceMetrics.shift()
+    }
+  }
+
+  getPerformanceMetrics(): PerformanceMetrics[] {
+    return [...this.performanceMetrics]
+  }
+
+  getMemoryUsage(): number {
+    if (typeof window !== 'undefined' && 'memory' in performance) {
+      const memory = (performance.memory as unknown as PerformanceMemory)
+      return memory.usedJSHeapSize || 0
+    }
+    // Fallback estimation based on processed subtitles and video size
+    return Math.max(50 * 1024 * 1024, this.performanceMetrics.length * 10 * 1024 * 1024)
+  }
+
+  isUsingWorkers(): boolean {
+    return false // Always false since we removed workers
+  }
+
+  resetFFmpegState(): void {
+    this.isFFmpegLoaded = false
+    this.isFFmpegLoading = false
+  }
+
+  getFFmpegLoadingState(): { loaded: boolean, loading: boolean } {
+    return {
+      loaded: this.isFFmpegLoaded,
+      loading: this.isFFmpegLoading
+    }
+  }
+
+  getProgressManager(): ProgressManager {
+    return this.progressManager
+  }
+
+  /**
+   * Properly cancel processing using FFmpeg WASM terminate method
+   * This will stop all ongoing operations and require reinitialization
+   */
+  async cancelProcessing(): Promise<void> {
+    try {
+      // Terminate all FFmpeg operations - this will throw an error by design
+      this.ffmpeg.terminate()
+    } catch (error) {
+      // FFmpeg.terminate() always throws "Error: called FFmpeg.terminate()" by design
+      // This is expected behavior, not an actual error
+      if (error instanceof Error && error.message === 'called FFmpeg.terminate()') {
+        console.log('🛑 FFmpeg processing terminated successfully')
+      } else {
+        console.warn('Unexpected error during FFmpeg termination:', error)
+      }
+    }
+    
+    // Reset FFmpeg state
+    this.isFFmpegLoaded = false
+    this.isFFmpegLoading = false
+    
+    // Reset progress manager
+    this.progressManager.reset()
+  }
+
+  // Batch Processing Capabilities
+
+  async processBatchSubtitles(
+    videoFile: File,
+    subtitleFiles: File[],
+    videoInfo: VideoInfo,
+    style: SubtitleStyle,
+    options: ProcessingOptions,
+    onLog: (message: string) => void,
+    onProgress: (progress: number) => void
+  ): Promise<{ url: string; filename: string }[]> {
+    onLog(`Starting batch processing: ${subtitleFiles.length} subtitle files`)
+    const results: { url: string; filename: string }[] = []
+
+    for (let i = 0; i < subtitleFiles.length; i++) {
+      const subtitleFile = subtitleFiles[i]
+      const batchProgress = (i / subtitleFiles.length) * 100
+      
+      onLog(`Processing subtitle file ${i + 1}/${subtitleFiles.length}: ${subtitleFile.name}`)
+      onProgress(batchProgress)
+
+      try {
+        // Parse subtitle file
+        const subtitles = await this.parseSubtitleFile(subtitleFile)
+        const { filteredSubtitles } = this.filterSubtitlesByDuration(subtitles, videoInfo.duration)
+
+        // Process video with current subtitle file
+        const outputUrl = await this.processVideoWithStrategy(
+          videoFile,
+          filteredSubtitles,
+          videoInfo,
+          style,
+          options,
+          (msg) => onLog(`[${subtitleFile.name}] ${msg}`),
+          (prog) => onProgress(batchProgress + (prog / subtitleFiles.length))
+        )
+
+        results.push({
+          url: outputUrl,
+          filename: `${videoFile.name.split('.')[0]}_${subtitleFile.name.split('.')[0]}.mp4`
+        })
+
+      } catch (error) {
+        onLog(`Error processing ${subtitleFile.name}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    onProgress(100)
+    onLog(`Batch processing completed: ${results.length}/${subtitleFiles.length} files processed successfully`)
+    return results
+  }
+
+  private async processVideoWithStrategy(
+    videoFile: File,
+    subtitles: SubtitleEntry[],
+    videoInfo: VideoInfo,
+    style: SubtitleStyle,
+    options: ProcessingOptions,
+    onLog: (message: string) => void,
+    onProgress: (progress: number) => void
+  ): Promise<string> {
+    // Always use optimized sequential processing
+    return await this.processVideoSequential(videoFile, subtitles, videoInfo, 'mp4', 
+      style.fontSize.toString(), style.fontColor, style.fontFamily, onLog, onProgress, options)
+  }
+
+  // Subtitle Merging and Language Support
+
+  async mergeSubtitleLanguages(
+    subtitleFiles: { file: File; language: string; position: 'top' | 'bottom' }[],
+    onLog: (message: string) => void
+  ): Promise<SubtitleEntry[]> {
+    const mergedSubtitles: SubtitleEntry[] = []
+    let indexCounter = 1
+
+    onLog(`Merging ${subtitleFiles.length} subtitle languages`)
+
+    for (const { file, language, position } of subtitleFiles) {
+      const subtitles = await this.parseSubtitleFile(file)
+      
+      for (const subtitle of subtitles) {
+        mergedSubtitles.push({
+          ...subtitle,
+          index: indexCounter++,
+          text: `[${language}] ${subtitle.text}`,
+          style: {
+            fontSize: 24,
+            fontColor: position === 'top' ? '#FFFF00' : '#FFFFFF',
+            fontFamily: 'Arial',
+            position,
+            alignment: 'center'
+          }
+        })
+      }
+
+      onLog(`Added ${subtitles.length} subtitles for ${language} (${position})`)
+    }
+
+    // Sort by start time
+    mergedSubtitles.sort((a, b) => a.startTime - b.startTime)
+    onLog(`Merged total: ${mergedSubtitles.length} subtitle entries`)
+
+    return mergedSubtitles
   }
 }
