@@ -158,7 +158,7 @@ export function useVideoProcessing() {
     progressStore.setProgressStage('')
     progressStore.setProgressPhase('')
     progressStore.setProgressETA('')
-    progressStore.clearLogs()
+    // Keep logs persistent - don't clear them on new process start
     videoStore.setDownloadUrl(null)
     videoStore.setError(null)
     videoStore.setMemoryUsage(0)
@@ -257,9 +257,8 @@ export function useVideoProcessing() {
         progressStore.setProgressETA('')
         videoStore.setMemoryUsage(0)
         
-        // Don't clear logs and download URL if processing was successful
+        // Keep logs persistent - only clear download URL on error
         if (videoStore.error || progressStore.progressStage === 'Cancelled') {
-          progressStore.clearLogs()
           videoStore.setDownloadUrl(null)
         }
       }, 2000)
@@ -336,7 +335,7 @@ export function useVideoProcessing() {
     progressStore.setProgressStage('')
     progressStore.setProgressPhase('')
     progressStore.setProgressETA('')
-    progressStore.clearLogs()
+    // Keep logs persistent - don't clear them on cancellation
     
     // Clear cancelling state after a brief delay
     setTimeout(() => {

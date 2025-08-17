@@ -9,6 +9,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { CircularPerformanceMonitor } from "@/components/CircularPerformanceMonitor"
 import { BatteryIndicator } from "@/components/BatteryIndicator"
 import { CancelProcessingDialog } from "@/components/CancelProcessingDialog"
+import { LogsDialog } from "@/components/LogsDialog"
 import { AdvancedSubtitleControls } from "@/components/AdvancedSubtitleControls"
 import { SubtitlePreviewCanvas } from "@/components/SubtitlePreviewCanvas"
 import { useVideoProcessing } from "@/hooks/useVideoProcessing"
@@ -39,7 +40,8 @@ function QuickStartTab() {
     memoryUsage,
     processingOptions,
     cancelProcessing,
-    outputFormat
+    outputFormat,
+    logs
   } = useVideoProcessing()
 
   return (
@@ -100,7 +102,8 @@ function AdvancedTab() {
     progressETA,
     isCancelling,
     memoryUsage,
-    cancelProcessing
+    cancelProcessing,
+    logs
   } = useVideoProcessing()
 
   return (
@@ -212,7 +215,7 @@ function SmartAlerts() {
  */
 function VideoSubtitleBurnerCore() {
   const [activeTab, setActiveTab] = useState("quickstart")
-  const { setScriptLoaded, setError, addLog, memoryUsage, processingOptions, isProcessing } = useVideoProcessing()
+  const { setScriptLoaded, setError, addLog, memoryUsage, processingOptions, isProcessing, logs } = useVideoProcessing()
 
   const tabs = [
     { id: "quickstart", label: "Quick Start", icon: Zap },
@@ -221,8 +224,16 @@ function VideoSubtitleBurnerCore() {
 
   return (
     <div className="p-8 relative">
-      {/* Battery Indicator */}
+      {/* Battery Indicator - Top Left */}
       <BatteryIndicator />
+      
+      {/* Logs Button - Bottom Right */}
+      <div className="fixed bottom-4 right-4 z-50">
+        <LogsDialog 
+          logs={logs} 
+          isProcessing={isProcessing}
+        />
+      </div>
       
       {/* Circular Performance Monitor */}
       <CircularPerformanceMonitor
