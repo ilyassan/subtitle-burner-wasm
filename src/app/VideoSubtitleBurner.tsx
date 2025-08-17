@@ -8,13 +8,13 @@ import { AlertCircle, Clock } from 'lucide-react'
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { CircularPerformanceMonitor } from "@/components/CircularPerformanceMonitor"
 import { BatteryIndicator } from "@/components/BatteryIndicator"
+import { CancelProcessingDialog } from "@/components/CancelProcessingDialog"
 import { AdvancedSubtitleControls } from "@/components/AdvancedSubtitleControls"
 import { SubtitlePreviewCanvas } from "@/components/SubtitlePreviewCanvas"
+import { useVideoProcessing } from "@/hooks/useVideoProcessing"
 
 // Feature imports
 import { 
-  VideoProcessingProvider, 
-  useVideoProcessing,
   VideoUploadSection,
   SubtitleUploadSection,
   ProcessingProgress,
@@ -208,7 +208,7 @@ function SmartAlerts() {
 
 /**
  * Main Video Subtitle Burner Component
- * Clean, organized component using proper composition and the new refactored architecture
+ * Clean, organized component using Zustand stores directly
  */
 function VideoSubtitleBurnerCore() {
   const [activeTab, setActiveTab] = useState("quickstart")
@@ -263,20 +263,21 @@ function VideoSubtitleBurnerCore() {
       <TabContent tabId="advanced" activeTab={activeTab}>
         <AdvancedTab />
       </TabContent>
+
+      {/* Cancel Processing Dialog */}
+      <CancelProcessingDialog />
     </div>
   )
 }
 
 /**
- * Wrapped component with provider and error boundary
- * This is the new refactored VideoSubtitleBurner using enterprise architecture
+ * Wrapped component with error boundary only
+ * Uses Zustand stores directly instead of React Context
  */
 const VideoSubtitleBurner = () => {
   return (
     <ErrorBoundary>
-      <VideoProcessingProvider>
-        <VideoSubtitleBurnerCore />
-      </VideoProcessingProvider>
+      <VideoSubtitleBurnerCore />
     </ErrorBoundary>
   )
 }

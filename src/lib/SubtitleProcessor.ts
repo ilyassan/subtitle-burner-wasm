@@ -584,12 +584,24 @@ export class SubtitleProcessor {
     // Small progress increment for setup tasks
     this.progressManager.updatePhase(2, "Preparing FFmpeg configuration...")
     
-    // Determine optimal settings based on options
-    const preset = options?.quality === 'fast' ? 'faster' : 
-                  options?.quality === 'high' ? 'medium' : 'fast'
-    const crf = options?.crf || (options?.quality === 'fast' ? 26 : 
-                                options?.quality === 'high' ? 20 : 23)
+    // Determine optimal settings based on options with more aggressive differences
+    const preset = options?.quality === 'fast' ? 'ultrafast' : 
+                  options?.quality === 'high' ? 'slow' : 'medium'
+    const crf = options?.crf || (options?.quality === 'fast' ? 28 : 
+                                options?.quality === 'high' ? 18 : 23)
     const threads = options?.threads || 0 // 0 means auto (all available)
+    
+    // Additional quality-based optimizations
+    const tune = options?.quality === 'fast' ? 'fastdecode' : 
+                options?.quality === 'high' ? 'film' : 'fastdecode'
+    const bframes = options?.quality === 'fast' ? '0' : 
+                   options?.quality === 'high' ? '3' : '2'
+    const refs = options?.quality === 'fast' ? '1' : 
+                options?.quality === 'high' ? '5' : '3'
+    
+    // Calculate memory limit for FFmpeg (in bytes)
+    const memoryLimitBytes = (options?.memoryLimit || 500) * 1024 * 1024
+    const memoryLimitKB = Math.floor(memoryLimitBytes / 1024)
     
     // Prepare FFmpeg arguments with optimized settings for maximum performance
     const ffmpegArgs = [
@@ -606,12 +618,22 @@ export class SubtitleProcessor {
       '-movflags', '+faststart', // Web optimization for progressive download
       '-avoid_negative_ts', 'make_zero', // Handle negative timestamps
       '-threads', threads.toString(), // Use specified thread count
-      '-tune', 'fastdecode', // Optimize for faster decoding
-      '-bf', '2', // B-frames for better compression
-      '-g', '250', // GOP size for web streaming
+      '-tune', tune, // Dynamic tune based on quality
+      '-bf', bframes, // Dynamic B-frames based on quality
+      '-refs', refs, // Dynamic reference frames based on quality
+      '-g', options?.quality === 'fast' ? '120' : '250', // Shorter GOP for fast mode
+      '-bufsize', `${memoryLimitKB}k`, // Apply memory limit to FFmpeg buffer
+      '-maxrate', `${Math.floor(memoryLimitKB / 4)}k`, // Set max bitrate based on memory
       '-pix_fmt', 'yuv420p', // Ensure compatibility
+      ...(options?.quality === 'fast' ? ['-flags', '+cgop'] : []), // Fast encoding flags
       '-y', outputFileName
     ]
+    
+    // Log the applied settings for user visibility
+    onLog(`🎯 Quality Mode: ${options?.quality?.toUpperCase() || 'BALANCED'}`)
+    onLog(`⚙️ FFmpeg Preset: ${preset} | CRF: ${crf} | Threads: ${threads === 0 ? 'auto' : threads}`)
+    onLog(`🔧 Advanced: tune=${tune}, b-frames=${bframes}, refs=${refs}`)
+    onLog(`💾 Memory: ${options?.memoryLimit || 500}MB limit | Buffer: ${memoryLimitKB}KB`)
     
     // Setup complete - now starting the heavy video encoding work
     this.progressManager.updatePhase(0, `Starting video encoding with ${threads === 0 ? 'all available' : threads} threads (preset: ${preset}, CRF: ${crf})`)

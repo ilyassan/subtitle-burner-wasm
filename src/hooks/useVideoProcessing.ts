@@ -1,46 +1,23 @@
-"use client"
-
-import React, { createContext, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useEffect } from 'react'
 import { VideoProcessingService } from '@/services/VideoProcessingService'
-import { VideoProcessingContext as VideoProcessingContextType } from '../types'
 import { useVideoStore } from '@/stores/videoStore'
 import { useProgressStore } from '@/stores/progressStore'
 import { useErrorHandler } from '@/components/ErrorBoundary'
 import debounce from 'lodash/debounce'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { AlertTriangle } from 'lucide-react'
-
-export const VideoProcessingContext = createContext<VideoProcessingContextType | null>(null)
-
-interface VideoProcessingProviderProps {
-  children: React.ReactNode
-}
 
 /**
- * Provider that manages all video processing state and business logic
- * Uses the VideoProcessingService for actual processing operations
+ * Unified Zustand-based hook for video processing
+ * Replaces the React Context Provider pattern with direct Zustand integration
  */
-export function VideoProcessingProvider({ children }: VideoProcessingProviderProps) {
+export function useVideoProcessing() {
   const { handleError } = useErrorHandler()
   
-  // Zustand stores for global state
+  // Zustand stores
   const videoStore = useVideoStore()
   const progressStore = useProgressStore()
   
-  // Service instance
+  // Service instance (singleton per hook usage)
   const serviceRef = useRef<VideoProcessingService>(new VideoProcessingService())
-  
-  // Local UI state
-  const [showCancelModal, setShowCancelModal] = useState(false)
 
   // Initialize service when script loads
   useEffect(() => {
@@ -314,8 +291,8 @@ export function VideoProcessingProvider({ children }: VideoProcessingProviderPro
    * Cancel processing
    */
   const cancelProcessing = useCallback(() => {
-    setShowCancelModal(true)
-  }, [])
+    videoStore.setShowCancelModal(true)
+  }, [videoStore.setShowCancelModal])
 
   /**
    * Confirm processing cancellation
@@ -323,7 +300,7 @@ export function VideoProcessingProvider({ children }: VideoProcessingProviderPro
   const confirmCancelProcessing = useCallback(async () => {
     // Immediate cancellation using proper FFmpeg termination
     videoStore.setIsCancelling(true)
-    setShowCancelModal(false)
+    videoStore.setShowCancelModal(false)
     
     // Cancel processing using FFmpeg WASM terminate
     try {
@@ -389,6 +366,7 @@ export function VideoProcessingProvider({ children }: VideoProcessingProviderPro
     videoStore.setError,
     videoStore.setFfmpegLoaded,
     videoStore.scriptLoaded,
+    videoStore.setShowCancelModal,
     progressStore.setProgress, 
     progressStore.setProgressStage, 
     progressStore.setProgressPhase, 
@@ -432,13 +410,14 @@ export function VideoProcessingProvider({ children }: VideoProcessingProviderPro
     videoStore.setError(error)
   }, [videoStore.setError])
 
-  // Context value
-  const contextValue: VideoProcessingContextType = {
+  // Return all state and actions
+  return {
     // State from stores
     videoFile: videoStore.videoFile,
     subtitleFile: videoStore.subtitleFile,
     isProcessing: videoStore.isProcessing,
     isCancelling: videoStore.isCancelling,
+    showCancelModal: videoStore.showCancelModal,
     progress: progressStore.progress,
     progressStage: progressStore.progressStage,
     progressPhase: progressStore.progressPhase,
@@ -462,6 +441,7 @@ export function VideoProcessingProvider({ children }: VideoProcessingProviderPro
     setSubtitleFile,
     startProcessing,
     cancelProcessing,
+    confirmCancelProcessing,
     updateSubtitleStyle,
     updateProcessingOptions,
     clearLogs: progressStore.clearLogs,
@@ -470,49 +450,4 @@ export function VideoProcessingProvider({ children }: VideoProcessingProviderPro
     setScriptLoaded,
     setError
   }
-
-  return (
-    <VideoProcessingContext.Provider value={contextValue}>
-      {children}
-      
-      {/* Cancel Confirmation AlertDialog */}
-      <AlertDialog open={showCancelModal} onOpenChange={setShowCancelModal}>
-        <AlertDialogContent className="sm:max-w-md">
-          <AlertDialogHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
-              </div>
-              <div>
-                <AlertDialogTitle className="text-lg font-semibold text-gray-900">
-                  Cancel Processing?
-                </AlertDialogTitle>
-              </div>
-            </div>
-          </AlertDialogHeader>
-          
-          <AlertDialogDescription className="text-gray-600 leading-relaxed">
-            Are you sure you want to cancel the current video processing operation? 
-            This action will stop the process immediately and any progress will be lost.
-          </AlertDialogDescription>
-          
-          <AlertDialogFooter className="flex gap-3">
-            <AlertDialogCancel 
-              className="flex-1"
-              disabled={videoStore.isCancelling}
-            >
-              Continue Processing
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmCancelProcessing}
-              className="flex-1 bg-red-600 hover:bg-red-700 text-white"
-              disabled={videoStore.isCancelling}
-            >
-              {videoStore.isCancelling ? "Cancelling..." : "Yes, Cancel"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </VideoProcessingContext.Provider>
-  )
 }

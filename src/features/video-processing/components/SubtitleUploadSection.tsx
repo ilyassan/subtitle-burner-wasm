@@ -3,7 +3,7 @@
 import React from 'react'
 import { FileText } from 'lucide-react'
 import { FileUploadCard } from './FileUploadCard'
-import { useVideoProcessing } from '../hooks/useVideoProcessing'
+import { useVideoProcessing } from '@/hooks/useVideoProcessing'
 
 /**
  * Subtitle upload section component

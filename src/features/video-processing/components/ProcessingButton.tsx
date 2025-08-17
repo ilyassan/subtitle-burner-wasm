@@ -3,7 +3,7 @@
 import React from 'react'
 import { Button } from "@/components/ui/button"
 import { Play } from 'lucide-react'
-import { useVideoProcessing } from '../hooks/useVideoProcessing'
+import { useVideoProcessing } from '@/hooks/useVideoProcessing'
 
 interface ProcessingButtonProps {
   className?: string

@@ -3,7 +3,7 @@
 import React from 'react'
 import { FileVideo } from 'lucide-react'
 import { FileUploadCard } from './FileUploadCard'
-import { useVideoProcessing } from '../hooks/useVideoProcessing'
+import { useVideoProcessing } from '@/hooks/useVideoProcessing'
 
 /**
  * Video upload section component
