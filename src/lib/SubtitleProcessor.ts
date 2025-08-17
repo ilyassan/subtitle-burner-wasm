@@ -9,7 +9,7 @@ import {
   ProcessingOptions, 
   PerformanceMetrics
 } from "@/types/types"
-import { ProgressManager } from "./ProgressManager"
+import { ProgressManager, progressManager } from "./ProgressManager"
 
 interface PerformanceMemory {
   usedJSHeapSize: number
@@ -34,52 +34,50 @@ export class SubtitleProcessor {
   private memoryLimit: number = 500 // MB default
   private isFFmpegLoaded: boolean = false
   private isFFmpegLoading: boolean = false
-  private progressManager: ProgressManager
-
   constructor(ffmpeg: FFmpeg) {
     this.ffmpeg = ffmpeg
-    this.progressManager = new ProgressManager()
   }
 
   async loadFFmpeg({ onLog, onProgress }: { onLog: (message: string) => void; onProgress: (progress: number) => void }) {
-    // Initialize progress manager
-    this.progressManager.reset()
-    this.progressManager.onLog(onLog)
-    this.progressManager.onProgress((update) => onProgress(update.phaseProgress / 100))
-
-    // Prevent multiple loading attempts
+    // Guard against multiple initialization
     if (this.isFFmpegLoaded) {
-      this.progressManager.complete("FFmpeg already loaded")
+      onLog("FFmpeg already loaded")
       return
     }
-    
+
     if (this.isFFmpegLoading) {
-    // Already in preparing-files phase, just continue
+      onLog("FFmpeg loading in progress")
       return
     }
 
     this.isFFmpegLoading = true
-    this.progressManager.setPhase('parsing-subtitles', "Loading FFmpeg...")
+
+    // Initialize progress manager (singleton)
+    progressManager.reset()
+    progressManager.onLog(onLog)
+    progressManager.onProgress((update) => onProgress(update.phaseProgress / 100))
 
     try {
+      progressManager.setPhase('parsing-subtitles', "Loading FFmpeg...")
+
       // Set up FFmpeg log handler for progress tracking during processing
       this.ffmpeg.on("log", ({ message }) => {
         onLog(message)
       })
       this.ffmpeg.on("progress", ({ progress }) => {
-        this.progressManager.updatePhase(progress * 100, "Loading FFmpeg core...")
+        progressManager.updatePhase(progress * 100, "Loading FFmpeg core...")
       })
       
-      this.progressManager.updatePhase(10, "Loading FFmpeg core...")
+      progressManager.updatePhase(10, "Loading FFmpeg core...")
       await this.ffmpeg.load({
         coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
         wasmURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm"
       })
       
-      this.progressManager.complete("FFmpeg loaded successfully")
+      progressManager.complete("FFmpeg loaded successfully")
       this.isFFmpegLoaded = true
     } catch (error) {
-      this.progressManager.error(`FFmpeg loading failed: ${error}`, error instanceof Error ? error : new Error(String(error)))
+      progressManager.error(`FFmpeg loading failed: ${error}`, error instanceof Error ? error : new Error(String(error)))
       throw error
     } finally {
       this.isFFmpegLoading = false
@@ -308,9 +306,9 @@ export class SubtitleProcessor {
     const options = { ...defaultOptions, ...processingOptions }
 
     // Initialize progress manager for this processing session
-    this.progressManager.reset()
-    this.progressManager.onLog(onLog)
-    this.progressManager.onProgress((update) => {
+    progressManager.reset()
+    progressManager.onLog(onLog)
+    progressManager.onProgress((update) => {
       let phaseType: 'subtitle-generation' | 'video-processing' | undefined = undefined
       if (update.phase === 'parsing-subtitles') {
         phaseType = 'subtitle-generation'
@@ -320,7 +318,7 @@ export class SubtitleProcessor {
       onProgress(update.phaseProgress, phaseType)
     })
 
-    this.progressManager.setPhase('parsing-subtitles', `Starting processing for ${relevantSubtitles.length} subtitles`)
+    progressManager.setPhase('parsing-subtitles', `Starting processing for ${relevantSubtitles.length} subtitles`)
 
     // Use sequential processing with optimizations
     return await this.processVideoSequential(videoFile, relevantSubtitles, videoInfo, outputFormat, fontSize, fontColor, fontFamily, onLog, onProgress, options)
@@ -344,10 +342,10 @@ export class SubtitleProcessor {
     
     try {
       // Phase 1: Parsing Subtitles (0-100%)
-      this.progressManager.updatePhase(10, "Loading video file...")
+      progressManager.updatePhase(10, "Loading video file...")
       
       await this.ffmpeg.writeFile(videoFileName, await fetchFile(videoFile))
-      this.progressManager.updatePhase(30, "Creating subtitle images...")
+      progressManager.updatePhase(30, "Creating subtitle images...")
       
       const subtitleImages = await this.createOptimizedSubtitleImages(
         relevantSubtitles, 
@@ -356,7 +354,7 @@ export class SubtitleProcessor {
         fontSize, 
         fontColor, 
         fontFamily, 
-        (prog) => this.progressManager.updatePhase(30 + (prog * 0.7), `Creating subtitle image ${Math.round(prog * relevantSubtitles.length / 100)}/${relevantSubtitles.length}`),
+        (prog) => progressManager.updatePhase(30 + (prog * 0.7), `Creating subtitle image ${Math.round(prog * relevantSubtitles.length / 100)}/${relevantSubtitles.length}`),
         onLog
       )
 
@@ -365,23 +363,23 @@ export class SubtitleProcessor {
         await this.batchWriteFiles(subtitleImages)
       }
       
-      this.progressManager.updatePhase(100, "All subtitle images created")
+      progressManager.updatePhase(100, "All subtitle images created")
 
       // Phase 2: Processing Video (0-100%)
-      this.progressManager.setPhase('processing-video', "Starting video processing...")
+      progressManager.setPhase('processing-video', "Starting video processing...")
       await this.processWithUnifiedFilter(
         videoFileName,
         outputFileName,
         relevantSubtitles,
         outputFormat,
-        (prog) => this.progressManager.updatePhase(prog, `Processing video: ${prog.toFixed(1)}%`),
+        (prog) => progressManager.updatePhase(prog, `Processing video: ${prog.toFixed(1)}%`),
         onLog,
         options,
         videoInfo.duration
       )
 
       // Read final output file and complete phase 2
-      this.progressManager.updatePhase(100, "Reading final output file...")
+      progressManager.updatePhase(100, "Reading final output file...")
       const data = await this.ffmpeg.readFile(outputFileName)
 
       if (!data || (data as Uint8Array).length === 0) {
@@ -391,9 +389,9 @@ export class SubtitleProcessor {
       // Cleanup
       await this.cleanupSequentialFiles(videoFileName, outputFileName, relevantSubtitles)
       
-      this.progressManager.updatePhase(100, "Processing completed successfully")
+      progressManager.updatePhase(100, "Processing completed successfully")
       const processingTime = performance.now() - startTime
-      this.progressManager.complete(`Processing completed in ${(processingTime/1000).toFixed(1)}s`)
+      progressManager.complete(`Processing completed in ${(processingTime/1000).toFixed(1)}s`)
 
       // Record performance metrics
       this.recordPerformanceMetrics({
@@ -410,7 +408,7 @@ export class SubtitleProcessor {
       return URL.createObjectURL(new Blob([typeof data === 'string' ? data : new Uint8Array(data)], { type: mimeType }))
 
     } catch (error) {
-      this.progressManager.error(`Processing failed: ${error}`, error instanceof Error ? error : new Error(String(error)))
+      progressManager.error(`Processing failed: ${error}`, error instanceof Error ? error : new Error(String(error)))
       // Comprehensive cleanup on error/cancellation
       await this.cleanupSequentialFiles(videoFileName, outputFileName, relevantSubtitles)
       await this.forceCleanup(relevantSubtitles)
@@ -576,13 +574,13 @@ export class SubtitleProcessor {
   ): Promise<void> {
 
     // Phase 2 starts at 0% - Building optimized filter complex
-    this.progressManager.updatePhase(0, "Building optimized filter complex...")
+    progressManager.updatePhase(0, "Building optimized filter complex...")
     
     // Build optimized filter complex for all subtitles at once
     const filterComplex = this.buildOptimizedFilterComplex(subtitles)
     
     // Small progress increment for setup tasks
-    this.progressManager.updatePhase(2, "Preparing FFmpeg configuration...")
+    progressManager.updatePhase(2, "Preparing FFmpeg configuration...")
     
     // Determine optimal settings based on options with more aggressive differences
     const preset = options?.quality === 'fast' ? 'ultrafast' : 
@@ -636,7 +634,7 @@ export class SubtitleProcessor {
     onLog(`💾 Memory: ${options?.memoryLimit || 500}MB limit | Buffer: ${memoryLimitKB}KB`)
     
     // Setup complete - now starting the heavy video encoding work
-    this.progressManager.updatePhase(0, `Starting video encoding with ${threads === 0 ? 'all available' : threads} threads (preset: ${preset}, CRF: ${crf})`)
+    progressManager.updatePhase(0, `Starting video encoding with ${threads === 0 ? 'all available' : threads} threads (preset: ${preset}, CRF: ${crf})`)
     
     // Enhanced progress tracking using the progress manager
     const progressAwareLogHandler = ({ message }: { message: string }) => {
@@ -645,7 +643,7 @@ export class SubtitleProcessor {
       
       // Let the progress manager handle FFmpeg log parsing for progress tracking
       // This will automatically update progress from ~5% to ~95% based on video encoding progress
-      this.progressManager.parseFFmpegLog(message, videoDuration)
+      progressManager.parseFFmpegLog(message, videoDuration)
     }
     
     // Add temporary progress tracking
@@ -654,7 +652,7 @@ export class SubtitleProcessor {
     try {
       await this.ffmpeg.exec(ffmpegArgs)
       // FFmpeg completed - finish the phase at 100%
-      this.progressManager.updatePhase(100, "Video encoding completed successfully")
+      progressManager.updatePhase(100, "Video encoding completed successfully")
     } catch (error) {
       throw error
     } finally {
@@ -847,7 +845,7 @@ export class SubtitleProcessor {
       await Promise.all(cleanupPromises)
       
       // Reset progress manager
-      this.progressManager.reset()
+      progressManager.reset()
       
       console.log('🧹 FFmpeg cleanup completed - all files and memory freed')
       
@@ -894,7 +892,7 @@ export class SubtitleProcessor {
   }
 
   getProgressManager(): ProgressManager {
-    return this.progressManager
+    return progressManager
   }
 
   /**
@@ -920,7 +918,7 @@ export class SubtitleProcessor {
     this.isFFmpegLoading = false
     
     // Reset progress manager
-    this.progressManager.reset()
+    progressManager.reset()
   }
 
   // Batch Processing Capabilities

@@ -1,5 +1,5 @@
-import { FFmpeg } from "@ffmpeg/ffmpeg"
 import { SubtitleProcessor } from "@/lib/SubtitleProcessor"
+import { FFmpeg } from "@ffmpeg/ffmpeg"
 import { VideoInfo, SubtitleEntry, ProcessingOptions } from "@/types/types"
 
 export interface ProcessingCallbacks {
@@ -27,6 +27,9 @@ export class VideoProcessingService {
   private ffmpeg: FFmpeg
   private processor: SubtitleProcessor
   private memoryMonitorInterval?: NodeJS.Timeout
+  private isInitialized: boolean = false
+  private isInitializing: boolean = false
+  private fontsLoaded: boolean = false
 
   constructor() {
     this.ffmpeg = new FFmpeg()
@@ -37,13 +40,30 @@ export class VideoProcessingService {
    * Initialize FFmpeg and load necessary resources
    */
   async initialize(callbacks: Pick<ProcessingCallbacks, 'onLog' | 'onProgress'>): Promise<void> {
-    await this.processor.loadFFmpeg({
-      onLog: callbacks.onLog,
-      onProgress: (progress) => callbacks.onProgress(Math.round(progress * 100), 'initialization')
-    })
+    // Guard against multiple initialization
+    if (this.isInitialized) {
+      return
+    }
 
-    // Load Google Fonts in background
-    this.loadGoogleFonts(callbacks.onLog)
+    if (this.isInitializing) {
+      return
+    }
+
+    this.isInitializing = true
+
+    try {
+      await this.processor.loadFFmpeg({
+        onLog: callbacks.onLog,
+        onProgress: (progress) => callbacks.onProgress(Math.round(progress * 100), 'initialization')
+      })
+
+      // Load Google Fonts in background (only once)
+      await this.loadGoogleFonts(callbacks.onLog)
+      
+      this.isInitialized = true
+    } finally {
+      this.isInitializing = false
+    }
   }
 
   /**
@@ -135,20 +155,27 @@ export class VideoProcessingService {
    * Load Google Fonts in background
    */
   private async loadGoogleFonts(onLog: (message: string) => void): Promise<void> {
+    // Guard against multiple font loading
+    if (this.fontsLoaded) {
+      return
+    }
+
     try {
       const fontList = await this.processor.fetchGoogleFonts()
       onLog(`Loaded ${fontList.length} Google Fonts`)
+      this.fontsLoaded = true
     } catch (err) {
       onLog(`Google Fonts load error: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
   /**
-   * Cancel current processing operation
+   * Cancel current processing operation using page reload
    */
   async cancelProcessing(): Promise<void> {
     this.stopMemoryMonitoring()
-    await this.processor.cancelProcessing()
+    // Page reload approach - cancellation is handled at the hook level
+    // This method exists for compatibility but actual cancellation is done via page reload
   }
 
   /**

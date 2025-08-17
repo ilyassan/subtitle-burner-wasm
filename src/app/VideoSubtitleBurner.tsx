@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import Script from "next/script"
 import { Zap, Settings, Eye } from 'lucide-react'
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -40,8 +40,7 @@ function QuickStartTab() {
     memoryUsage,
     processingOptions,
     cancelProcessing,
-    outputFormat,
-    logs
+    outputFormat
   } = useVideoProcessing()
 
   return (
@@ -102,8 +101,7 @@ function AdvancedTab() {
     progressETA,
     isCancelling,
     memoryUsage,
-    cancelProcessing,
-    logs
+    cancelProcessing
   } = useVideoProcessing()
 
   return (
@@ -215,7 +213,23 @@ function SmartAlerts() {
  */
 function VideoSubtitleBurnerCore() {
   const [activeTab, setActiveTab] = useState("quickstart")
+  const [scriptLoaded, setScriptLoadedLocal] = useState(false)
   const { setScriptLoaded, setError, addLog, memoryUsage, processingOptions, isProcessing, logs } = useVideoProcessing()
+
+  // Listen for tab restoration events
+  useEffect(() => {
+    const handleTabRestore = (event: CustomEvent) => {
+      const restoredTab = event.detail
+      if (restoredTab === 'advanced' || restoredTab === 'quick') {
+        setActiveTab(restoredTab === 'advanced' ? 'advanced' : 'quickstart')
+      }
+    }
+
+    window.addEventListener('restoreActiveTab', handleTabRestore as EventListener)
+    return () => window.removeEventListener('restoreActiveTab', handleTabRestore as EventListener)
+  }, [])
+
+  // Save active tab only during cancellation (removed automatic saving)
 
   const tabs = [
     { id: "quickstart", label: "Quick Start", icon: Zap },
@@ -247,8 +261,11 @@ function VideoSubtitleBurnerCore() {
         src="https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js"
         strategy="afterInteractive"
         onLoad={() => {
-          setScriptLoaded(true)
-          addLog("ffmpeg-core.js loaded")
+          if (!scriptLoaded) {
+            setScriptLoadedLocal(true)
+            setScriptLoaded(true)
+            addLog("ffmpeg-core.js loaded")
+          }
         }}
         onError={(e: Error) => {
           setError(`Failed to load ffmpeg-core.js: ${e.message}`)

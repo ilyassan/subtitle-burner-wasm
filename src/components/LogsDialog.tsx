@@ -6,14 +6,10 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
 import { 
   Terminal, 
   Copy, 
   Download, 
-  Trash2,
-  ChevronDown,
-  ChevronUp,
   Activity,
   Info,
   AlertTriangle,
@@ -35,12 +31,11 @@ interface LogsDialogProps {
  * - Auto-scroll to latest log
  * - Copy logs to clipboard
  * - Download logs as text file
- * - Clear logs functionality
- * - Collapsible detailed view
+ * - Wide layout with overflow protection
+ * - Single-line log entries with ellipsis
  */
 export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [isExpanded, setIsExpanded] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const lastLogRef = useRef<HTMLDivElement>(null)
@@ -96,7 +91,6 @@ export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
     URL.revokeObjectURL(url)
   }
 
-  const latestLogs = logs.slice(-5) // Show only last 5 logs in preview
   const hasLogs = logs.length > 0
 
   return (
@@ -118,7 +112,7 @@ export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
         )}
       </DialogTrigger>
       
-      <DialogContent className="max-w-4xl max-h-[80vh] flex flex-col">
+      <DialogContent className="max-w-7xl md:min-w-[80vw] max-h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Terminal className="h-5 w-5" />
@@ -132,20 +126,10 @@ export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Log Controls */}
           <div className="flex items-center justify-between gap-2 mb-4 flex-shrink-0">
             <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="gap-1"
-              >
-                {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                {isExpanded ? 'Collapse' : 'Expand'} Details
-              </Button>
-              
               <Button
                 variant="ghost"
                 size="sm"
@@ -183,8 +167,8 @@ export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
           </div>
 
           {/* Logs Display */}
-          <Card className="flex-1 min-h-0">
-            <CardContent className="p-0 h-full">
+          <Card className="flex-1 min-h-0 overflow-hidden">
+            <CardContent className="p-0 h-full overflow-hidden">
               {!hasLogs ? (
                 <div className="flex items-center justify-center h-32 text-gray-500">
                   <div className="text-center">
@@ -194,15 +178,14 @@ export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
                   </div>
                 </div>
               ) : (
-                <ScrollArea className="h-[400px] p-4" ref={scrollAreaRef}>
+                <ScrollArea className="h-[450px] p-4" ref={scrollAreaRef}>
                   <div className="space-y-2">
-                    {(isExpanded ? logs : latestLogs).map((log, index) => {
-                      const actualIndex = isExpanded ? index : logs.length - latestLogs.length + index
+                    {logs.map((log, index) => {
                       const { icon: Icon, color, bg } = getLogType(log)
                       
                       return (
                         <div
-                          key={actualIndex}
+                          key={index}
                           className={cn(
                             "flex items-start gap-3 p-3 rounded-lg border text-sm",
                             bg,
@@ -210,31 +193,17 @@ export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
                           )}
                         >
                           <Icon className={cn("h-4 w-4 mt-0.5 flex-shrink-0", color)} />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <span className="break-words text-gray-900">{log}</span>
+                          <div className="flex-1 min-w-0 overflow-hidden">
+                            <div className="flex items-start justify-between gap-4">
+                              <span className="text-gray-900 whitespace-nowrap overflow-hidden text-ellipsis">{log}</span>
                               <span className="text-xs text-gray-500 flex-shrink-0">
-                                {formatTime(actualIndex)}
+                                {formatTime(index)}
                               </span>
                             </div>
                           </div>
                         </div>
                       )
                     })}
-                    
-                    {!isExpanded && logs.length > 5 && (
-                      <div className="text-center py-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setIsExpanded(true)}
-                          className="gap-1 text-gray-500"
-                        >
-                          <ChevronDown className="h-4 w-4" />
-                          Show {logs.length - 5} more logs
-                        </Button>
-                      </div>
-                    )}
                     
                     <div ref={lastLogRef} />
                   </div>

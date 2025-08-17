@@ -1,8 +1,10 @@
 import { useCallback, useRef, useEffect } from 'react'
-import { VideoProcessingService } from '@/services/VideoProcessingService'
+import { getVideoProcessingService } from '@/services/VideoProcessingServiceSingleton'
 import { useVideoStore } from '@/stores/videoStore'
 import { useProgressStore } from '@/stores/progressStore'
 import { useErrorHandler } from '@/components/ErrorBoundary'
+import { StatePersistenceService } from '@/lib/StatePeristenceService'
+import { isGlobalInitialized, isGlobalInitializing, setGlobalInitializing, setGlobalInitialized, getGlobalInitPromise, setGlobalInitPromise } from '@/lib/GlobalInitializationState'
 import debounce from 'lodash/debounce'
 
 /**
@@ -16,34 +18,115 @@ export function useVideoProcessing() {
   const videoStore = useVideoStore()
   const progressStore = useProgressStore()
   
-  // Service instance (singleton per hook usage)
-  const serviceRef = useRef<VideoProcessingService>(new VideoProcessingService())
+  // Service instance (true singleton across all hook instances)
+  const serviceRef = useRef(getVideoProcessingService())
 
-  // Initialize service when script loads
+  // Restore state on page load (if coming from cancellation)
+  useEffect(() => {
+    const restoreState = () => {
+      if (StatePersistenceService.shouldRestoreState()) {
+        const state = StatePersistenceService.getAndClearState()
+        if (state) {
+          // Restore logs
+          progressStore.clearLogs()
+          state.logs.forEach(log => {
+            progressStore.addLog(log.message)
+          })
+          
+          // Restore subtitle style
+          videoStore.setSubtitleStyle({
+            fontSize: parseInt(state.fontSize),
+            fontColor: state.fontColor,
+            fontFamily: state.fontFamily
+          })
+          
+          // Restore output format
+          videoStore.setOutputFormat(state.outputFormat)
+          
+          // Restore processing options
+          if (state.quality || state.crf || state.threads !== undefined || state.useDiskCache !== undefined) {
+            videoStore.setProcessingOptions({
+              quality: state.quality || 'balanced',
+              crf: state.crf || 23,
+              threads: state.threads || 0,
+              useDiskCache: state.useDiskCache !== undefined ? state.useDiskCache : true,
+              memoryLimit: videoStore.processingOptions.memoryLimit
+            })
+          }
+          
+          // Scroll to tabs section instead of restoring previous scroll position
+          StatePersistenceService.scrollToTabsSection()
+          
+          // Add cancellation message
+          progressStore.addLog("🛑 Processing cancelled successfully via page reload")
+          
+          // Store active tab in a way the parent component can access
+          // We'll need to emit this information somehow
+          window.dispatchEvent(new CustomEvent('restoreActiveTab', { detail: state.activeTab }))
+        }
+      }
+    }
+    
+    // Run restoration immediately on mount
+    restoreState()
+  }, [])
+
+  // Initialize service when script loads (with global guards)
   useEffect(() => {
     const initializeService = async () => {
+      // Don't initialize if script isn't loaded
       if (!videoStore.scriptLoaded) {
-        progressStore.addLog("Waiting for ffmpeg-core.js to load")
         return
       }
 
-      try {
-        await serviceRef.current.initialize({
-          onLog: (message) => progressStore.addLog(message),
-          onProgress: (progress) => progressStore.setProgress(progress)
-        })
-        
-        videoStore.setFfmpegLoaded(true)
-        progressStore.addLog("FFmpeg loaded successfully")
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err)
-        videoStore.setError(`Failed to load FFmpeg: ${errorMessage}`)
-        progressStore.addLog(`FFmpeg load error: ${errorMessage}`)
+      // Global guard - if already initialized globally, just update local state
+      if (isGlobalInitialized()) {
+        if (!videoStore.ffmpegLoaded) {
+          videoStore.setFfmpegLoaded(true)
+        }
+        return
       }
+
+      // Global guard - if currently initializing, wait for it
+      if (isGlobalInitializing()) {
+        const existingPromise = getGlobalInitPromise()
+        if (existingPromise) {
+          await existingPromise
+          if (!videoStore.ffmpegLoaded) {
+            videoStore.setFfmpegLoaded(true)
+          }
+        }
+        return
+      }
+
+      // Start global initialization
+      setGlobalInitializing(true)
+      const initPromise = (async () => {
+        try {
+          await serviceRef.current.initialize({
+            onLog: (message) => progressStore.addLog(message),
+            onProgress: (progress) => progressStore.setProgress(progress)
+          })
+          
+          setGlobalInitialized(true)
+          videoStore.setFfmpegLoaded(true)
+          progressStore.addLog("FFmpeg loaded successfully")
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err)
+          videoStore.setError(`Failed to load FFmpeg: ${errorMessage}`)
+          progressStore.addLog(`FFmpeg load error: ${errorMessage}`)
+        } finally {
+          setGlobalInitializing(false)
+          setGlobalInitPromise(null)
+        }
+      })()
+      
+      setGlobalInitPromise(initPromise)
+      await initPromise
     }
 
     initializeService()
-  }, [videoStore.scriptLoaded, videoStore.setFfmpegLoaded, videoStore.setError, progressStore.addLog, progressStore.setProgress])
+  }, [videoStore.scriptLoaded])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -294,84 +377,71 @@ export function useVideoProcessing() {
   }, [videoStore.setShowCancelModal])
 
   /**
-   * Confirm processing cancellation
+   * Confirm processing cancellation using page reload approach
    */
   const confirmCancelProcessing = useCallback(async () => {
-    // Immediate cancellation using proper FFmpeg termination
     videoStore.setIsCancelling(true)
     videoStore.setShowCancelModal(false)
     
-    // Cancel processing using FFmpeg WASM terminate
-    try {
-      await serviceRef.current.cancelProcessing()
-      progressStore.addLog("🛑 FFmpeg processing terminated")
-    } catch (error) {
-      // FFmpeg.terminate() always throws "Error: called FFmpeg.terminate()" by design
-      // This is expected behavior, not an actual error
-      if (error instanceof Error && error.message === 'called FFmpeg.terminate()') {
-        progressStore.addLog("🛑 FFmpeg processing terminated")
-      } else {
-        console.warn('Unexpected cancellation error:', error)
-        progressStore.addLog("⚠️ Warning during cancellation")
-      }
-    }
+    progressStore.addLog("🛑 Preparing to cancel processing...")
     
-    // Force cleanup FFmpeg WASM memory
-    try {
-      await serviceRef.current.forceCleanup()
-      progressStore.addLog("🧹 FFmpeg memory cleaned up")
-    } catch (error) {
-      console.warn('Cleanup error:', error)
-    }
+    // Get current active tab from the UI
+    const currentActiveTab = document.querySelector('[role="tablist"] [aria-selected="true"]')?.getAttribute('data-value') || 'quick'
+    const activeTabType: 'quick' | 'advanced' = currentActiveTab === 'advanced' ? 'advanced' : 'quick'
     
-    // Complete state reset - return everything to initial state
-    videoStore.setIsProcessing(false)
-    videoStore.setDownloadUrl(null)
-    videoStore.setMemoryUsage(0)
-    videoStore.setError(null)
+    // Save all current application state to localStorage (ONLY during cancellation)
+    StatePersistenceService.saveState({
+      // Tab state from current UI
+      activeTab: activeTabType,
+      
+      // Control settings
+      fontSize: videoStore.subtitleStyle.fontSize.toString(),
+      fontColor: videoStore.subtitleStyle.fontColor,
+      fontFamily: videoStore.subtitleStyle.fontFamily,
+      outputFormat: videoStore.outputFormat,
+      
+      // Advanced settings
+      quality: videoStore.processingOptions.quality,
+      crf: videoStore.processingOptions.crf,
+      threads: videoStore.processingOptions.threads,
+      useDiskCache: videoStore.processingOptions.useDiskCache,
+      
+      // Logs - convert to the format expected by persistence service
+      logs: progressStore.logs.map(logMessage => ({
+        id: Math.random().toString(36),
+        message: logMessage,
+        timestamp: Date.now(),
+        type: 'info' as const
+      })),
+      
+      // File information
+      videoFileName: videoStore.videoFile?.name,
+      subtitleFileName: videoStore.subtitleFile?.name,
+      
+      // Processing state
+      wasProcessing: true,
+      wasCancelled: true
+    })
     
-    // Reset progress to initial state (back to 0)
-    progressStore.setProgress(0)
-    progressStore.setProgressStage('')
-    progressStore.setProgressPhase('')
-    progressStore.setProgressETA('')
-    // Keep logs persistent - don't clear them on cancellation
+    progressStore.addLog("💾 State saved - reloading page to cancel FFmpeg...")
     
-    // Clear cancelling state after a brief delay
+    // Mark cancellation in progress
+    StatePersistenceService.markCancellationInProgress()
+    
+    // Small delay to ensure log is visible, then reload
     setTimeout(() => {
-      videoStore.setIsCancelling(false)
+      window.location.reload()
     }, 500)
-    
-    // Reinitialize FFmpeg since terminate() requires it
-    if (videoStore.scriptLoaded) {
-      try {
-        await serviceRef.current.initialize({
-          onLog: (message) => progressStore.addLog(message),
-          onProgress: (progress) => progressStore.setProgress(progress)
-        })
-        videoStore.setFfmpegLoaded(true)
-        progressStore.addLog("✅ FFmpeg reinitialized - Ready for new processing")
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err)
-        videoStore.setError(`Failed to reinitialize FFmpeg: ${errorMessage}`)
-        progressStore.addLog(`FFmpeg reinit error: ${errorMessage}`)
-      }
-    }
   }, [
-    videoStore.setIsCancelling, 
-    videoStore.setIsProcessing, 
-    videoStore.setDownloadUrl, 
-    videoStore.setMemoryUsage, 
-    videoStore.setError,
-    videoStore.setFfmpegLoaded,
-    videoStore.scriptLoaded,
+    videoStore.setIsCancelling,
     videoStore.setShowCancelModal,
-    progressStore.setProgress, 
-    progressStore.setProgressStage, 
-    progressStore.setProgressPhase, 
-    progressStore.setProgressETA, 
-    progressStore.addLog, 
-    progressStore.clearLogs
+    videoStore.subtitleStyle,
+    videoStore.outputFormat,
+    videoStore.processingOptions,
+    videoStore.videoFile,
+    videoStore.subtitleFile,
+    progressStore.addLog,
+    progressStore.logs
   ])
 
   /**
@@ -408,6 +478,10 @@ export function useVideoProcessing() {
   const setError = useCallback((error: string | null) => {
     videoStore.setError(error)
   }, [videoStore.setError])
+
+  // Removed saveActiveTab function - tab state is now captured directly during cancellation
+
+  // Removed periodic state saving - only save during cancellation
 
   // Return all state and actions
   return {

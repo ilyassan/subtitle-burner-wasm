@@ -59,7 +59,7 @@ export class ProgressManager {
     this.phaseProgress = 0
     this.lastReportedProgress = 0
     this.progressHistory = []
-    this.log('Progress manager initialized - Phase 1: Parsing Subtitles')
+    // Removed log message to prevent repetition
   }
 
   /**
@@ -84,7 +84,6 @@ export class ProgressManager {
   setPhase(phase: ProcessingPhase, message?: string): void {
     if (phase === this.currentPhase) return
 
-    const oldPhase = this.currentPhase
     this.currentPhase = phase
     this.phaseProgress = 0  // Always reset to 0 for new phase
     this.lastReportedProgress = 0
@@ -92,7 +91,7 @@ export class ProgressManager {
     const phaseConfig = this.phaseConfigs[phase]
     const updateMessage = message || `Phase ${phaseConfig.number}: ${phaseConfig.name} - Starting...`
     
-    this.log(`🔄 Phase transition: ${oldPhase} → ${phase} (Progress reset to 0%)`)
+    // Removed excessive phase transition logging
     this.emitUpdate(updateMessage)
     
     // Immediately emit a 0% progress to ensure UI shows starting state
@@ -188,7 +187,7 @@ export class ProgressManager {
   complete(message = 'Processing completed successfully'): void {
     this.setPhase('completed', message)
     this.updatePhase(100, message)
-    this.log('✅ Processing completed')
+    // Removed excessive completion logging
     
     // Reset everything after a short delay to allow UI to show completion
     setTimeout(() => {

@@ -13,7 +13,6 @@ import { ProcessingProgressProps } from '../types'
  */
 export function ProcessingProgress({
   progress,
-  progressStage,
   progressPhase,
   progressETA,
   isProcessing,

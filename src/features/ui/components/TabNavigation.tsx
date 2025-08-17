@@ -21,12 +21,15 @@ interface TabNavigationProps {
  */
 export function TabNavigation({ tabs, activeTab, onTabChange, className = "" }: TabNavigationProps) {
   return (
-    <div className={`flex justify-center mb-8 ${className}`}>
-      <div className="bg-secondary rounded-xl p-1 inline-flex">
+    <div className={`flex justify-center mb-8 ${className}`} data-tabs>
+      <div className="bg-secondary rounded-xl p-1 inline-flex" role="tablist">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            data-value={tab.id === 'quickstart' ? 'quick' : tab.id}
             className={`px-6 py-3 rounded-lg font-medium transition-all duration-300 flex items-center gap-2 ${
               activeTab === tab.id
                 ? "bg-primary text-primary-foreground shadow-md"
