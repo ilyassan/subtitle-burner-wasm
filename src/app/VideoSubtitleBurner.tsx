@@ -214,7 +214,7 @@ function SmartAlerts() {
 function VideoSubtitleBurnerCore() {
   const [activeTab, setActiveTab] = useState("quickstart")
   const [scriptLoaded, setScriptLoadedLocal] = useState(false)
-  const { setScriptLoaded, setError, addLog, memoryUsage, processingOptions, isProcessing, logs } = useVideoProcessing()
+  const { setScriptLoaded, setError, addLog, memoryUsage, processingOptions, isProcessing, logs, totalLogCount, clearLogs } = useVideoProcessing()
 
   // Listen for tab restoration events
   useEffect(() => {
@@ -246,6 +246,8 @@ function VideoSubtitleBurnerCore() {
         <LogsDialog 
           logs={logs} 
           isProcessing={isProcessing}
+          onClearLogs={clearLogs}
+          totalLogCount={totalLogCount}
         />
       </div>
       

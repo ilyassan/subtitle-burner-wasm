@@ -8,13 +8,12 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent } from "@/components/ui/card"
 import { 
   Terminal, 
-  Copy, 
-  Download, 
   Activity,
   Info,
   AlertTriangle,
   CheckCircle,
-  XCircle
+  XCircle,
+  Trash2
 } from 'lucide-react'
 import { cn } from "@/lib/utils"
 
@@ -22,6 +21,8 @@ interface LogsDialogProps {
   logs: string[]
   isProcessing: boolean
   trigger?: React.ReactNode
+  onClearLogs?: () => void
+  totalLogCount?: number
 }
 
 /**
@@ -29,12 +30,10 @@ interface LogsDialogProps {
  * Features:
  * - Live updating logs during processing
  * - Auto-scroll to latest log
- * - Copy logs to clipboard
- * - Download logs as text file
  * - Wide layout with overflow protection
  * - Single-line log entries with ellipsis
  */
-export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
+export function LogsDialog({ logs, isProcessing, trigger, onClearLogs, totalLogCount }: LogsDialogProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
@@ -43,9 +42,21 @@ export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
     if (autoScroll && lastLogRef.current) {
-      lastLogRef.current.scrollIntoView({ behavior: 'smooth' })
+      lastLogRef.current.scrollIntoView({ behavior: 'auto', block: 'end' })
     }
   }, [logs, autoScroll])
+
+  // Instantly scroll to bottom when dialog opens
+  useEffect(() => {
+    if (isOpen) {
+      const raf = requestAnimationFrame(() => {
+        if (lastLogRef.current) {
+          lastLogRef.current.scrollIntoView({ behavior: 'auto', block: 'end' })
+        }
+      })
+      return () => cancelAnimationFrame(raf)
+    }
+  }, [isOpen])
 
   // Get log level icon and color based on message content
   const getLogType = (message: string) => {
@@ -71,26 +82,6 @@ export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
     return logTime.toLocaleTimeString()
   }
 
-  // Copy logs to clipboard
-  const copyLogs = async () => {
-    const logsText = logs.map((log, index) => `[${formatTime(index)}] ${log}`).join('\n')
-    await navigator.clipboard.writeText(logsText)
-  }
-
-  // Download logs as file
-  const downloadLogs = () => {
-    const logsText = logs.map((log, index) => `[${formatTime(index)}] ${log}`).join('\n')
-    const blob = new Blob([logsText], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `ffmpeg-logs-${new Date().toISOString().split('T')[0]}.txt`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }
-
   const hasLogs = logs.length > 0
 
   return (
@@ -100,9 +91,9 @@ export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
           <Button variant="outline" size="sm" className="gap-2 bg-white/90 hover:bg-white shadow-sm">
             <Terminal className="h-4 w-4" />
             Logs
-            {hasLogs && (
+            {(totalLogCount || hasLogs) && (
               <Badge variant="secondary" className="ml-1">
-                {logs.length}
+                {totalLogCount ?? logs.length}
               </Badge>
             )}
             {isProcessing && (
@@ -145,23 +136,12 @@ export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={copyLogs}
+                onClick={onClearLogs}
                 disabled={!hasLogs}
                 className="gap-1"
               >
-                <Copy className="h-4 w-4" />
-                Copy
-              </Button>
-              
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={downloadLogs}
-                disabled={!hasLogs}
-                className="gap-1"
-              >
-                <Download className="h-4 w-4" />
-                Download
+                <Trash2 className="h-4 w-4" />
+                Clear
               </Button>
             </div>
           </div>
@@ -213,9 +193,9 @@ export function LogsDialog({ logs, isProcessing, trigger }: LogsDialogProps) {
           </Card>
 
           {/* Log Stats */}
-          {hasLogs && (
+          {(totalLogCount || hasLogs) && (
             <div className="flex items-center justify-between text-xs text-gray-500 mt-3 flex-shrink-0">
-              <span>Total: {logs.length} log entries</span>
+              <span>Total: {totalLogCount ?? logs.length} log entries</span>
               <span>
                 {isProcessing ? 'Updating live...' : 'Processing completed'}
               </span>

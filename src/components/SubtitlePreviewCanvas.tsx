@@ -1,12 +1,13 @@
 "use client"
 
-import React, { useState, useRef } from "react"
+import React, { useState, useRef, useEffect } from "react"
 
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { SubtitleStyle } from "@/types/types"
 import { Edit3 } from "lucide-react"
+import { useVideoProcessing } from "@/hooks/useVideoProcessing"
 
 interface SubtitlePreviewCanvasProps {
   style: SubtitleStyle
@@ -19,6 +20,26 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
 }) => {
   const [previewText, setPreviewText] = useState("This is how the subtitle will look like")
   const canvasRef = useRef<HTMLDivElement>(null)
+  const { videoInfo } = useVideoProcessing()
+
+  // Compute scale relative to actual video resolution so preview matches output
+  const [scale, setScale] = useState(1)
+
+  useEffect(() => {
+    const updateScale = () => {
+      const container = canvasRef.current
+      if (!container) return
+      const containerHeight = container.clientHeight || 0
+      const referenceVideoHeight = videoInfo?.height || 720
+      if (referenceVideoHeight > 0 && containerHeight > 0) {
+        setScale(containerHeight / referenceVideoHeight)
+      }
+    }
+
+    updateScale()
+    window.addEventListener('resize', updateScale)
+    return () => window.removeEventListener('resize', updateScale)
+  }, [videoInfo?.height])
 
   // Calculate position based on style settings
   const getPositionStyles = () => {
@@ -55,29 +76,32 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
     // Add margin offsets
     if (style.marginX) {
       if (style.alignment === 'left') {
-        baseStyles.left = `calc(5% + ${style.marginX}px)`
+        baseStyles.left = `calc(5% + ${(style.marginX || 0) * scale}px)`
       } else if (style.alignment === 'right') {
-        baseStyles.left = `calc(95% + ${style.marginX}px)`
+        baseStyles.left = `calc(95% + ${(style.marginX || 0) * scale}px)`
       } else {
-        baseStyles.left = `calc(50% + ${style.marginX}px)`
+        baseStyles.left = `calc(50% + ${(style.marginX || 0) * scale}px)`
       }
     }
 
+    // Match FFmpeg preview baseline offset (~50px from bottom in processing)
+    const baseOffsetPx = 50 * scale
+
     switch (style.position) {
       case 'top':
-        baseStyles.top = style.marginY ? `${20 + (style.marginY || 0)}px` : '20px'
+        baseStyles.top = `${baseOffsetPx + ((style.marginY || 0) * scale)}px`
         break
       case 'center':
         baseStyles.top = '50%'
         // Update transform to handle both X and Y positioning with margins
         const xTransform = style.alignment === 'left' ? '0' : 
                           style.alignment === 'right' ? '-100%' : '-50%'
-        const yTransform = style.marginY ? `calc(-50% + ${style.marginY}px)` : '-50%'
+        const yTransform = style.marginY ? `calc(-50% + ${(style.marginY || 0) * scale}px)` : '-50%'
         baseStyles.transform = `translate(${xTransform}, ${yTransform})`
         break
       case 'bottom':
       default:
-        baseStyles.bottom = style.marginY ? `${20 + Math.abs(style.marginY || 0)}px` : '20px'
+        baseStyles.bottom = `${baseOffsetPx + Math.abs((style.marginY || 0) * scale)}px`
         break
     }
 
@@ -93,8 +117,9 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
     
     // Create multiple shadows for outline effect
     const shadows = []
-    for (let x = -outlineWidth; x <= outlineWidth; x++) {
-      for (let y = -outlineWidth; y <= outlineWidth; y++) {
+    const scaledOutline = outlineWidth * scale
+    for (let x = -scaledOutline; x <= scaledOutline; x++) {
+      for (let y = -scaledOutline; y <= scaledOutline; y++) {
         if (x !== 0 || y !== 0) {
           shadows.push(`${x}px ${y}px 0px ${outlineColor}`)
         }
@@ -110,7 +135,7 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
   }
 
   const subtitleStyles: React.CSSProperties = {
-    fontSize: `${style.fontSize || 24}px`,
+    fontSize: `${(style.fontSize || 24) * scale}px`,
     color: style.fontColor || '#FFFFFF',
     fontFamily: `'${style.fontFamily || 'Arial'}', sans-serif`,
     fontWeight: 'bold',
@@ -118,8 +143,8 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
     textShadow: getTextShadow(),
     opacity: style.opacity || 1,
     backgroundColor: style.backgroundColor || 'transparent',
-    padding: style.backgroundColor && style.backgroundColor !== 'transparent' ? '8px 12px' : '0',
-    borderRadius: style.backgroundColor && style.backgroundColor !== 'transparent' ? '4px' : '0',
+    padding: style.backgroundColor && style.backgroundColor !== 'transparent' ? `${8 * scale}px ${12 * scale}px` : '0',
+    borderRadius: style.backgroundColor && style.backgroundColor !== 'transparent' ? `${4 * scale}px` : '0',
     display: 'inline-block',
     ...getPositionStyles()
   }
@@ -150,7 +175,7 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
             ref={canvasRef}
             className="relative bg-black rounded-lg overflow-hidden w-full"
             style={{ 
-              aspectRatio: '16/9',
+              aspectRatio: videoInfo?.width && videoInfo?.height ? `${videoInfo.width}/${videoInfo.height}` : '16/9',
               minHeight: '200px',
               maxHeight: '400px',
               background: 'linear-gradient(45deg, #0a0a0a 25%, transparent 25%), linear-gradient(-45deg, #0a0a0a 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #0a0a0a 75%), linear-gradient(-45deg, transparent 75%, #0a0a0a 75%)',

@@ -20,6 +20,7 @@ interface ProgressState {
   
   // Logs
   logs: string[]
+  totalLogCount: number
   
   // Processing status
   isProcessing: boolean
@@ -103,6 +104,7 @@ const initialState: ProgressState = {
   
   // Logs
   logs: [],
+  totalLogCount: 0,
   
   // Processing status
   isProcessing: false,
@@ -136,13 +138,20 @@ export const useProgressStore = create<ProgressStore>()(
       }), false, 'setProgressMetadata'),
       
       // Log actions
-      addLog: (message) => set((state) => ({
-        logs: [...state.logs, message]
-      }), false, 'addLog'),
+      addLog: (message) => set((state) => {
+        const nextTotal = state.totalLogCount + 1
+        // Keep only the last 10 logs in memory for UI, but update total count
+        const nextLogs = [...state.logs, message]
+        const trimmedLogs = nextLogs.length > 10 ? nextLogs.slice(nextLogs.length - 10) : nextLogs
+        return {
+          logs: trimmedLogs,
+          totalLogCount: nextTotal
+        }
+      }, false, 'addLog'),
       
-      clearLogs: () => set({ logs: [] }, false, 'clearLogs'),
+      clearLogs: () => set({ logs: [], totalLogCount: 0 }, false, 'clearLogs'),
       
-      setLogs: (logs) => set({ logs }, false, 'setLogs'),
+      setLogs: (logs) => set({ logs, totalLogCount: logs.length }, false, 'setLogs'),
       
       // Status actions
       setIsProcessing: (processing) => set({ isProcessing: processing }, false, 'setIsProcessing'),

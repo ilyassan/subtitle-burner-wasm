@@ -293,7 +293,7 @@ export class SubtitleProcessor {
     fontColor: string
     fontFamily: string
     onLog: (message: string) => void
-    onProgress: (progress: number, phase?: 'subtitle-generation' | 'video-processing') => void
+    onProgress: (progress: number, phase?: 'subtitle-generation' | 'ffmpeg-setup' | 'filtergraph' | 'video-processing') => void
     processingOptions?: ProcessingOptions
   }): Promise<string> {
     const defaultOptions: ProcessingOptions = {
@@ -314,9 +314,13 @@ export class SubtitleProcessor {
     progressManager.reset()
     progressManager.onLog(onLog)
     progressManager.onProgress((update) => {
-      let phaseType: 'subtitle-generation' | 'video-processing' | undefined = undefined
+      let phaseType: 'subtitle-generation' | 'ffmpeg-setup' | 'filtergraph' | 'video-processing' | undefined = undefined
       if (update.phase === 'parsing-subtitles') {
         phaseType = 'subtitle-generation'
+      } else if ((update.phase as unknown as string) === 'preparing-ffmpeg') {
+        phaseType = 'ffmpeg-setup'
+      } else if ((update.phase as unknown as string) === 'building-filtergraph') {
+        phaseType = 'filtergraph'
       } else if (update.phase === 'processing-video') {
         phaseType = 'video-processing'
       }
@@ -338,7 +342,7 @@ export class SubtitleProcessor {
     fontColor: string,
     fontFamily: string,
     onLog: (message: string) => void,
-    onProgress: (progress: number, phase?: 'subtitle-generation' | 'video-processing') => void,
+    onProgress: (progress: number, phase?: 'subtitle-generation' | 'ffmpeg-setup' | 'filtergraph' | 'video-processing') => void,
     options?: ProcessingOptions
   ): Promise<string> {
     const startTime = performance.now()
@@ -347,11 +351,8 @@ export class SubtitleProcessor {
     
     try {
       // Phase 1: Parsing Subtitles (0-100%)
-      progressManager.updatePhase(10, "Loading video file...")
-      
       await this.ffmpeg.writeFile(videoFileName, await fetchFile(videoFile))
-      progressManager.updatePhase(30, "Creating subtitle images...")
-      
+      // Start real progress reporting based on actual created images
       const subtitleImages = await this.createOptimizedSubtitleImages(
         relevantSubtitles, 
         videoInfo.width, 
@@ -359,7 +360,7 @@ export class SubtitleProcessor {
         fontSize, 
         fontColor, 
         fontFamily, 
-        (prog) => progressManager.updatePhase(30 + (prog * 0.7), `Creating subtitle image ${Math.round(prog * relevantSubtitles.length / 100)}/${relevantSubtitles.length}`),
+        (current, total) => progressManager.updateSubtitleProgress(current, total, `Creating subtitle image ${current}/${total}`),
         onLog
       )
 
@@ -370,8 +371,8 @@ export class SubtitleProcessor {
       
       progressManager.updatePhase(100, "All subtitle images created")
 
-      // Phase 2: Processing Video (0-100%)
-      progressManager.setPhase('processing-video', "Starting video processing...")
+      // Phase 2: FFmpeg setup (register inputs, build filter graph)
+      progressManager.setPhase('preparing-ffmpeg' as any, "Preparing FFmpeg setup...")
       await this.processWithUnifiedFilter(
         videoFileName,
         outputFileName,
@@ -434,7 +435,7 @@ export class SubtitleProcessor {
     fontSize: string,
     fontColor: string,
     fontFamily: string,
-    onProgress: (progress: number) => void,
+    onProgress: (current: number, total: number) => void,
     onLog: (message: string) => void
   ): Promise<{[key: string]: Uint8Array}> {
     const subtitleImages: {[key: string]: Uint8Array} = {}
@@ -511,9 +512,9 @@ export class SubtitleProcessor {
           delete subtitleImages[filename] // Remove from memory after writing to disk
         }
 
-        // Update progress for individual subtitle within batch
-        const individualProgress = Math.round(((batchStart + i + 1) / subtitles.length) * 100)
-        onProgress(individualProgress)
+        // Update progress for individual subtitle within batch using actual counts
+        const createdCount = batchStart + i + 1
+        onProgress(createdCount, subtitles.length)
       }
       
       // Yield control to prevent UI blocking and allow memory cleanup
@@ -587,8 +588,8 @@ export class SubtitleProcessor {
     // Build optimized filter complex for all subtitles at once
     const filterComplex = this.buildOptimizedFilterComplex(subtitles)
     
-    // Small progress increment for setup tasks
-    progressManager.updatePhase(2, "Preparing FFmpeg configuration...")
+    // Setup tasks without bumping progress above 0%
+    onLog("Preparing FFmpeg configuration...")
     
     // Determine optimal settings based on options with more aggressive differences
     const preset = options?.quality === 'fast' ? 'ultrafast' : 
@@ -644,17 +645,51 @@ export class SubtitleProcessor {
     // Setup complete - now starting the heavy video encoding work
     progressManager.updatePhase(0, `Starting video encoding with ${threads === 0 ? 'all available' : threads} threads (preset: ${preset}, CRF: ${crf})`)
     
-    // Enhanced progress tracking using the progress manager
-    const progressAwareLogHandler = ({ message }: { message: string }) => {
-      // Always log the message first
+    // Setup-phase progress tracking based on FFmpeg logs before encoding starts
+    let registeredInputs = 0
+    const totalSubtitleInputs = subtitles.length
+    const mappedPngStreams = new Set<number>()
+    const setupLogHandler = ({ message }: { message: string }) => {
       onLog(message)
-      
-      // Let the progress manager handle FFmpeg log parsing for progress tracking
-      // This will automatically update progress from ~5% to ~95% based on video encoding progress
+      // Count png subtitle inputs as setup progress
+      if (/Input #\d+,\s*png_pipe,\s*from 'subtitle_\d+\.png':/i.test(message)) {
+        registeredInputs = Math.min(totalSubtitleInputs, registeredInputs + 1)
+        const setupProgress = Math.round((registeredInputs / Math.max(1, totalSubtitleInputs)) * 100)
+        progressManager.updatePhase(setupProgress, `Registering subtitle inputs: ${registeredInputs}/${totalSubtitleInputs}`)
+      }
+      // Stream mapping indicates filter graph preparation
+      if (/^Stream mapping:/i.test(message)) {
+        // Transition to dedicated filter graph phase
+        progressManager.setPhase('building-filtergraph' as any, 'Starting filter graph build...')
+        progressManager.updatePhase(1, 'Analyzing streams and overlays...')
+      }
+      // During filter graph phase, count mapped PNG overlays to show true progress
+      const mappingMatch = message.match(/^\s*Stream #(\d+):0 \(png\) -> overlay/i)
+      if (mappingMatch) {
+        const streamIndex = parseInt(mappingMatch[1], 10)
+        if (!Number.isNaN(streamIndex)) {
+          mappedPngStreams.add(streamIndex)
+          const mappedCount = Math.min(totalSubtitleInputs, mappedPngStreams.size)
+          const graphProgress = Math.round((mappedCount / Math.max(1, totalSubtitleInputs)) * 100)
+          progressManager.updatePhase(graphProgress, `Mapping overlays: ${mappedCount}/${totalSubtitleInputs}`)
+        }
+      }
+      // Detect start of encoding and switch to processing-video phase
+      if (/time=\d{2}:\d{2}:\d{2}[\.,]\d+/.test(message) || /frame=\s*\d+/i.test(message)) {
+        progressManager.setPhase('processing-video', 'Starting video encoding...')
+        // After switching phase, let the progress manager parse encoding progress
+        progressManager.parseFFmpegLog(message, videoDuration)
+        // Remove setup handler once encoding starts
+        this.ffmpeg.off('log', setupLogHandler)
+      }
+    }
+    this.ffmpeg.on('log', setupLogHandler)
+    
+    // Encoding-phase progress tracking using the progress manager
+    const progressAwareLogHandler = ({ message }: { message: string }) => {
+      onLog(message)
       progressManager.parseFFmpegLog(message, videoDuration)
     }
-    
-    // Add temporary progress tracking
     this.ffmpeg.on("log", progressAwareLogHandler)
     
     try {

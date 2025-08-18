@@ -6,6 +6,8 @@
 
 export type ProcessingPhase = 
   | 'parsing-subtitles'
+  | 'preparing-ffmpeg'
+  | 'building-filtergraph'
   | 'processing-video'
   | 'completed'
   | 'error'
@@ -42,8 +44,10 @@ export class ProgressManager {
   // Phase configuration with descriptive titles
   private readonly phaseConfigs: Record<ProcessingPhase, PhaseConfig> = {
     'parsing-subtitles': { name: 'Phase 1: Generating Subtitle Images', number: 1 },
-    'processing-video': { name: 'Phase 2: Encoding Video with Subtitles', number: 2 },
-    'completed': { name: 'Processing Complete', number: 3 },
+    'preparing-ffmpeg': { name: 'Phase 2: FFmpeg Setup', number: 2 },
+    'building-filtergraph': { name: 'Phase 3: Building Filter Graph', number: 3 },
+    'processing-video': { name: 'Phase 4: Encoding Video with Subtitles', number: 4 },
+    'completed': { name: 'Processing Complete', number: 5 },
     'error': { name: 'Processing Failed', number: 0 }
   }
 
@@ -114,12 +118,12 @@ export class ProgressManager {
 
     // Always emit the first progress update, then require meaningful increases
     const isFirstUpdate = this.lastReportedProgress === 0 && progress > 0
-    const isMeaningfulIncrease = progress - this.lastReportedProgress >= 1
+    const isMeaningfulIncrease = progress - this.lastReportedProgress >= 0.1
     
     if (isFirstUpdate || isMeaningfulIncrease) {
       this.lastReportedProgress = progress
       const phaseConfig = this.phaseConfigs[this.currentPhase]
-      const updateMessage = message || `${phaseConfig.name}: ${progress.toFixed(1)}%`
+      const updateMessage = message || `${phaseConfig.name}: ${progress.toFixed(2)}%`
       this.emitUpdate(updateMessage, metadata)
     }
   }

@@ -209,7 +209,7 @@ export function AdvancedSubtitleControls({
               <div className="space-y-2">
                 <Label>CPU Threads</Label>
                 <Select
-                  value={processingOptions.threads?.toString() || "auto"}
+                  value={(processingOptions.threads === 0 || processingOptions.threads == null) ? "auto" : String(processingOptions.threads)}
                   onValueChange={(value) => updateProcessingOptions({ threads: value === "auto" ? 0 : parseInt(value) })}
                 >
                   <SelectTrigger className="w-full">

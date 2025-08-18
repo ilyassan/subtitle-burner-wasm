@@ -279,8 +279,12 @@ export function useVideoProcessing() {
             // Update phase display with better titles
             if (phase === 'subtitle-generation') {
               progressStore.setProgressPhase('Phase 1: Generating Subtitle Images')
+            } else if (phase === 'ffmpeg-setup') {
+              progressStore.setProgressPhase('Phase 2: FFmpeg Setup')
+            } else if (phase === 'filtergraph') {
+              progressStore.setProgressPhase('Phase 3: Building Filter Graph')
             } else if (phase === 'video-processing') {
-              progressStore.setProgressPhase('Phase 2: Encoding Video with Subtitles')
+              progressStore.setProgressPhase('Phase 4: Encoding Video with Subtitles')
             } else {
               progressStore.setProgressPhase('Phase 1: Generating Subtitle Images')
             }
@@ -508,6 +512,7 @@ export function useVideoProcessing() {
     scriptLoaded: videoStore.scriptLoaded,
     memoryUsage: videoStore.memoryUsage,
     logs: progressStore.logs,
+    totalLogCount: progressStore.totalLogCount,
 
     // Actions
     setVideoFile,
