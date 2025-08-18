@@ -305,6 +305,11 @@ export class SubtitleProcessor {
     }
     const options = { ...defaultOptions, ...processingOptions }
 
+    // Ensure FFmpeg is loaded (will reload if terminated)
+    if (!this.isFFmpegLoaded) {
+      await this.loadFFmpeg({ onLog, onProgress: (progress) => onProgress(progress) })
+    }
+
     // Initialize progress manager for this processing session
     progressManager.reset()
     progressManager.onLog(onLog)
@@ -403,6 +408,9 @@ export class SubtitleProcessor {
         strategy: 'optimized_sequential',
         avgTimePerSubtitle: processingTime / relevantSubtitles.length
       })
+
+      // Terminate FFmpeg to reset all internal state and prevent progress bar issues
+      await this.terminateAndResetFFmpeg()
 
       const mimeType = outputFormat === "mp4" ? "video/mp4" : "video/webm"
       return URL.createObjectURL(new Blob([typeof data === 'string' ? data : new Uint8Array(data)], { type: mimeType }))
@@ -919,6 +927,32 @@ export class SubtitleProcessor {
     
     // Reset progress manager
     progressManager.reset()
+  }
+
+  /**
+   * Terminate FFmpeg after completion to reset all internal state
+   * This prevents progress bar bugs between processing sessions
+   */
+  private async terminateAndResetFFmpeg(): Promise<void> {
+    try {
+      console.log('🔄 Terminating FFmpeg to reset state for next processing...')
+      // Terminate all FFmpeg operations - this will throw an error by design
+      this.ffmpeg.terminate()
+    } catch (error) {
+      // FFmpeg.terminate() always throws "Error: called FFmpeg.terminate()" by design
+      // This is expected behavior, not an actual error
+      if (error instanceof Error && error.message === 'called FFmpeg.terminate()') {
+        console.log('✅ FFmpeg terminated successfully - ready for next video')
+      } else {
+        console.warn('Unexpected error during FFmpeg termination:', error)
+      }
+    }
+    
+    // Reset FFmpeg state so it will be reloaded for the next video
+    this.isFFmpegLoaded = false
+    this.isFFmpegLoading = false
+    
+    console.log('🔧 FFmpeg state reset - next video will reload FFmpeg from scratch')
   }
 
   // Batch Processing Capabilities
