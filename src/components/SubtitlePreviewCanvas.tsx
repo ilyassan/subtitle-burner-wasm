@@ -22,24 +22,51 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
   const canvasRef = useRef<HTMLDivElement>(null)
   const { videoInfo } = useVideoProcessing()
 
-  // Compute scale relative to actual video resolution so preview matches output
-  const [scale, setScale] = useState(1)
+  // Store both container dimensions and scale factor
+  const [dimensions, setDimensions] = useState({
+    containerWidth: 0,
+    containerHeight: 0,
+    scale: 0.5
+  })
 
   useEffect(() => {
-    const updateScale = () => {
+    const updateDimensions = () => {
       const container = canvasRef.current
       if (!container) return
+      
+      const containerWidth = container.clientWidth || 0
       const containerHeight = container.clientHeight || 0
-      const referenceVideoHeight = videoInfo?.height || 720
-      if (referenceVideoHeight > 0 && containerHeight > 0) {
-        setScale(containerHeight / referenceVideoHeight)
+      
+      // Default video dimensions if not available
+      const referenceVideoWidth = videoInfo?.width || 1920
+      const referenceVideoHeight = videoInfo?.height || 1080
+      
+      if (referenceVideoWidth > 0 && referenceVideoHeight > 0 && containerWidth > 0 && containerHeight > 0) {
+        // Calculate scale factor: how much smaller is the preview compared to the actual video
+        const widthScale = containerWidth / referenceVideoWidth
+        const heightScale = containerHeight / referenceVideoHeight
+        // Use minimum scale to maintain aspect ratio
+        const scale = Math.min(widthScale, heightScale)
+        
+        setDimensions({
+          containerWidth,
+          containerHeight,
+          scale
+        })
       }
     }
 
-    updateScale()
-    window.addEventListener('resize', updateScale)
-    return () => window.removeEventListener('resize', updateScale)
-  }, [videoInfo?.height])
+    updateDimensions()
+    window.addEventListener('resize', updateDimensions)
+    
+    // Also update when video info changes
+    const timer = setTimeout(updateDimensions, 100)
+    
+    return () => {
+      window.removeEventListener('resize', updateDimensions)
+      clearTimeout(timer)
+    }
+  }, [videoInfo?.width, videoInfo?.height])
 
   // Calculate position based on style settings
   const getPositionStyles = () => {
@@ -57,7 +84,7 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
       leftPosition = '95%'
       transform = 'translateX(-100%)'
     } else {
-      // Center alignment - this matches canvas textAlign: 'center' behavior
+      // Center alignment
       textAlign = 'center'
       leftPosition = '50%'
       transform = 'translateX(-50%)'
@@ -73,35 +100,36 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
       maxWidth: '90%'
     }
 
-    // Add margin offsets
+    // Add scaled margin offsets
     if (style.marginX) {
+      const scaledMarginX = style.marginX * dimensions.scale
       if (style.alignment === 'left') {
-        baseStyles.left = `calc(5% + ${(style.marginX || 0) * scale}px)`
+        baseStyles.left = `calc(5% + ${scaledMarginX}px)`
       } else if (style.alignment === 'right') {
-        baseStyles.left = `calc(95% + ${(style.marginX || 0) * scale}px)`
+        baseStyles.left = `calc(95% - ${scaledMarginX}px)`
       } else {
-        baseStyles.left = `calc(50% + ${(style.marginX || 0) * scale}px)`
+        baseStyles.left = `calc(50% + ${scaledMarginX}px)`
       }
     }
 
-    // Match FFmpeg preview baseline offset (~50px from bottom in processing)
-    const baseOffsetPx = 50 * scale
+    // Scale the base offset and margins proportionally
+    const scaledBaseOffset = 50 * dimensions.scale
+    const scaledMarginY = (style.marginY || 0) * dimensions.scale
 
     switch (style.position) {
       case 'top':
-        baseStyles.top = `${baseOffsetPx + ((style.marginY || 0) * scale)}px`
+        baseStyles.top = `${scaledBaseOffset + scaledMarginY}px`
         break
       case 'center':
         baseStyles.top = '50%'
-        // Update transform to handle both X and Y positioning with margins
         const xTransform = style.alignment === 'left' ? '0' : 
                           style.alignment === 'right' ? '-100%' : '-50%'
-        const yTransform = style.marginY ? `calc(-50% + ${(style.marginY || 0) * scale}px)` : '-50%'
-        baseStyles.transform = `translate(${xTransform}, ${yTransform})`
+        const yOffset = scaledMarginY ? `calc(-50% + ${scaledMarginY}px)` : '-50%'
+        baseStyles.transform = `translate(${xTransform}, ${yOffset})`
         break
       case 'bottom':
       default:
-        baseStyles.bottom = `${baseOffsetPx + Math.abs((style.marginY || 0) * scale)}px`
+        baseStyles.bottom = `${scaledBaseOffset + Math.abs(scaledMarginY)}px`
         break
     }
 
@@ -115,27 +143,49 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
     
     if (outlineWidth === 0) return style.shadow ? '2px 2px 4px rgba(0,0,0,0.8)' : 'none'
     
-    // Create multiple shadows for outline effect
+    // Scale outline width proportionally
+    const scaledOutline = outlineWidth * dimensions.scale
     const shadows = []
-    const scaledOutline = outlineWidth * scale
-    for (let x = -scaledOutline; x <= scaledOutline; x++) {
-      for (let y = -scaledOutline; y <= scaledOutline; y++) {
-        if (x !== 0 || y !== 0) {
-          shadows.push(`${x}px ${y}px 0px ${outlineColor}`)
-        }
-      }
+    
+    // Create outline effect with multiple shadows
+    const steps = Math.ceil(scaledOutline)
+    for (let i = 0; i < 8; i++) {
+      const angle = (i * Math.PI) / 4
+      const x = Math.cos(angle) * scaledOutline
+      const y = Math.sin(angle) * scaledOutline
+      shadows.push(`${x}px ${y}px 0px ${outlineColor}`)
     }
     
     // Add drop shadow if enabled
     if (style.shadow) {
-      shadows.push('2px 2px 4px rgba(0,0,0,0.8)')
+      shadows.push(`${2 * dimensions.scale}px ${2 * dimensions.scale}px ${4 * dimensions.scale}px rgba(0,0,0,0.8)`)
     }
     
     return shadows.join(', ')
   }
 
+  // Calculate accurate font size that matches video output appearance
+  const getAccurateFontSize = () => {
+    const baseFontSize = style.fontSize || 24
+    
+    // The key fix: Scale the font size proportionally to the container vs video size ratio
+    // This ensures that a 24px font on a 1920x1080 video looks the same relative size
+    // as it would in the smaller preview container
+    return baseFontSize * dimensions.scale
+  }
+
+  // Calculate scaled padding for background
+  const getScaledPadding = () => {
+    if (!style.backgroundColor || style.backgroundColor === 'transparent') {
+      return '0'
+    }
+    const paddingY = 8 * dimensions.scale
+    const paddingX = 12 * dimensions.scale
+    return `${paddingY}px ${paddingX}px`
+  }
+
   const subtitleStyles: React.CSSProperties = {
-    fontSize: `${(style.fontSize || 24) * scale}px`,
+    fontSize: `${getAccurateFontSize()}px`,
     color: style.fontColor || '#FFFFFF',
     fontFamily: `'${style.fontFamily || 'Arial'}', sans-serif`,
     fontWeight: 'bold',
@@ -143,11 +193,29 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
     textShadow: getTextShadow(),
     opacity: style.opacity || 1,
     backgroundColor: style.backgroundColor || 'transparent',
-    padding: style.backgroundColor && style.backgroundColor !== 'transparent' ? `${8 * scale}px ${12 * scale}px` : '0',
-    borderRadius: style.backgroundColor && style.backgroundColor !== 'transparent' ? `${4 * scale}px` : '0',
+    padding: getScaledPadding(),
+    borderRadius: style.backgroundColor && style.backgroundColor !== 'transparent' ? `${4 * dimensions.scale}px` : '0',
     display: 'inline-block',
     ...getPositionStyles()
   }
+
+  // Get display values for the info panel
+  const getVideoInfoDisplay = () => {
+    const videoWidth = videoInfo?.width || 1920
+    const videoHeight = videoInfo?.height || 1080
+    const actualFontSize = style.fontSize || 24
+    const previewFontSize = getAccurateFontSize()
+    
+    return {
+      videoDimensions: `${videoWidth}×${videoHeight}`,
+      previewDimensions: `${Math.round(dimensions.containerWidth)}×${Math.round(dimensions.containerHeight)}`,
+      actualFontSize: `${actualFontSize}px`,
+      previewFontSize: `${previewFontSize.toFixed(1)}px`,
+      scaleRatio: `${(dimensions.scale * 100).toFixed(1)}%`
+    }
+  }
+
+  const displayInfo = getVideoInfoDisplay()
 
   return (
     <div className={className}>
@@ -182,25 +250,21 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
               backgroundSize: '20px 20px',
               backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
             }}
-            
-            
-            
           >
             {/* Video placeholder overlay */}
             <div className="absolute inset-0 bg-gradient-to-br from-gray-900/50 to-gray-800/50 flex items-center justify-center">
               <div className="text-gray-600 text-center">
                 <div className="text-sm font-medium">Video Preview Area</div>
-                <div className="text-xs mt-1">Subtitle styling will be applied over your video</div>
+                <div className="text-xs mt-1">
+                  {displayInfo.videoDimensions} → {displayInfo.previewDimensions} ({displayInfo.scaleRatio})
+                </div>
               </div>
             </div>
 
             {/* Subtitle overlay */}
             <div
               style={subtitleStyles}
-              key={JSON.stringify(style) + previewText}
-              
-              
-              
+              key={JSON.stringify(style) + previewText + dimensions.scale}
             >
               {previewText || "This is how the subtitle will look like"}
             </div>
@@ -218,11 +282,15 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
             </div>
           </div>
 
-          {/* Style Information */}
+          {/* Style Information with scaling details */}
           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-gray-600">
             <div className="bg-gray-50 rounded p-2">
-              <div className="font-medium">Font</div>
+              <div className="font-medium">Font (Video)</div>
               <div>{style.fontSize}px {style.fontFamily}</div>
+            </div>
+            <div className="bg-gray-50 rounded p-2">
+              <div className="font-medium">Font (Preview)</div>
+              <div>{displayInfo.previewFontSize} scaled</div>
             </div>
             <div className="bg-gray-50 rounded p-2">
               <div className="font-medium">Position</div>
@@ -232,11 +300,15 @@ export const SubtitlePreviewCanvas: React.FC<SubtitlePreviewCanvasProps> = ({
               <div className="font-medium">Outline</div>
               <div>{style.outlineWidth}px</div>
             </div>
-            <div className="bg-gray-50 rounded p-2">
-              <div className="font-medium">Opacity</div>
-              <div>{Math.round((style.opacity || 1) * 100)}%</div>
-            </div>
           </div>
+
+          {/* Debug info - remove in production */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mt-2 text-xs text-gray-500 bg-gray-100 rounded p-2">
+              <div>Video: {displayInfo.videoDimensions} | Preview: {displayInfo.previewDimensions}</div>
+              <div>Scale Factor: {displayInfo.scaleRatio} | Font: {displayInfo.actualFontSize} → {displayInfo.previewFontSize}</div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

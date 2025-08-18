@@ -1,6 +1,6 @@
 import { SubtitleProcessor } from "@/lib/SubtitleProcessor"
 import { FFmpeg } from "@ffmpeg/ffmpeg"
-import { VideoInfo, SubtitleEntry, ProcessingOptions } from "@/types/types"
+import { VideoInfo, SubtitleEntry, ProcessingOptions, SubtitleStyle } from "@/types/types"
 
 export interface ProcessingCallbacks {
   onLog: (message: string) => void
@@ -13,9 +13,7 @@ export interface ProcessingParams {
   relevantSubtitles: SubtitleEntry[]
   videoInfo: VideoInfo
   outputFormat: string
-  fontSize: string
-  fontColor: string
-  fontFamily: string
+  subtitleStyle: SubtitleStyle
   processingOptions: ProcessingOptions
 }
 
@@ -103,9 +101,7 @@ export class VideoProcessingService {
         relevantSubtitles: params.relevantSubtitles,
         videoInfo: params.videoInfo,
         outputFormat: params.outputFormat,
-        fontSize: params.fontSize,
-        fontColor: params.fontColor,
-        fontFamily: params.fontFamily,
+        subtitleStyle: params.subtitleStyle,
         onLog: callbacks.onLog,
         onProgress: callbacks.onProgress,
         processingOptions: params.processingOptions

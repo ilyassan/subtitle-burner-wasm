@@ -278,9 +278,7 @@ export class SubtitleProcessor {
     relevantSubtitles,
     videoInfo,
     outputFormat,
-    fontSize,
-    fontColor,
-    fontFamily,
+    subtitleStyle,
     onLog,
     onProgress,
     processingOptions
@@ -289,9 +287,7 @@ export class SubtitleProcessor {
     relevantSubtitles: SubtitleEntry[]
     videoInfo: VideoInfo
     outputFormat: string
-    fontSize: string
-    fontColor: string
-    fontFamily: string
+    subtitleStyle: SubtitleStyle
     onLog: (message: string) => void
     onProgress: (progress: number, phase?: 'subtitle-generation' | 'ffmpeg-setup' | 'filtergraph' | 'video-processing') => void
     processingOptions?: ProcessingOptions
@@ -329,8 +325,8 @@ export class SubtitleProcessor {
 
     progressManager.setPhase('parsing-subtitles', `Starting processing for ${relevantSubtitles.length} subtitles`)
 
-    // Use sequential processing with optimizations
-    return await this.processVideoSequential(videoFile, relevantSubtitles, videoInfo, outputFormat, fontSize, fontColor, fontFamily, onLog, onProgress, options)
+    // Use sequential processing with full styling support
+    return await this.processVideoSequential(videoFile, relevantSubtitles, videoInfo, outputFormat, subtitleStyle, onLog, onProgress, options)
   }
 
   async processVideoSequential(
@@ -338,9 +334,7 @@ export class SubtitleProcessor {
     relevantSubtitles: SubtitleEntry[],
     videoInfo: VideoInfo,
     outputFormat: string,
-    fontSize: string,
-    fontColor: string,
-    fontFamily: string,
+    subtitleStyle: SubtitleStyle,
     onLog: (message: string) => void,
     onProgress: (progress: number, phase?: 'subtitle-generation' | 'ffmpeg-setup' | 'filtergraph' | 'video-processing') => void,
     options?: ProcessingOptions
@@ -357,9 +351,7 @@ export class SubtitleProcessor {
         relevantSubtitles, 
         videoInfo.width, 
         videoInfo.height, 
-        fontSize, 
-        fontColor, 
-        fontFamily, 
+        subtitleStyle, 
         (current, total) => progressManager.updateSubtitleProgress(current, total, `Creating subtitle image ${current}/${total}`),
         onLog
       )
@@ -432,9 +424,7 @@ export class SubtitleProcessor {
     subtitles: SubtitleEntry[],
     width: number,
     height: number,
-    fontSize: string,
-    fontColor: string,
-    fontFamily: string,
+    style: SubtitleStyle,
     onProgress: (current: number, total: number) => void,
     onLog: (message: string) => void
   ): Promise<{[key: string]: Uint8Array}> {
@@ -454,25 +444,21 @@ export class SubtitleProcessor {
       batchSize = Math.max(5, Math.min(10, Math.floor(availableMemoryMB / 5)))
     }
     
-    onLog(`🖼️ Creating ${subtitles.length} subtitle images in memory-optimized batches of ${batchSize}`)
+    onLog(`🖼️ Creating ${subtitles.length} subtitle images with advanced styling (batches of ${batchSize})`)
     onLog(`💾 Available memory: ${availableMemoryMB.toFixed(1)}MB / ${this.memoryLimit}MB`)
+    onLog(`🎨 Style: ${style.fontSize}px ${style.fontFamily}, color: ${style.fontColor}`)
+    if (style.backgroundColor && style.backgroundColor !== 'transparent') {
+      onLog(`📦 Background: ${style.backgroundColor} (opacity: ${style.opacity || 1})`)
+    }
+    if (style.outlineWidth && style.outlineWidth > 0) {
+      onLog(`🔲 Outline: ${style.outlineWidth}px ${style.outlineColor || '#000000'}`)
+    }
 
     // Pre-create canvas for reuse
     const canvas = document.createElement('canvas')
     canvas.width = width
     canvas.height = height
     const ctx = canvas.getContext('2d')!
-    
-    // Pre-configure canvas context
-    ctx.font = `${fontSize}px '${fontFamily}', Arial, sans-serif`
-    ctx.fillStyle = fontColor
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'bottom'
-    ctx.strokeStyle = '#000000'
-    ctx.lineWidth = 2
-
-    const x = width / 2
-    const y = height - 50
     
     for (let batchStart = 0; batchStart < subtitles.length; batchStart += batchSize) {
       // Check memory pressure before each batch
@@ -493,10 +479,11 @@ export class SubtitleProcessor {
       for (let i = 0; i < batch.length; i++) {
         const subtitle = batch[i]
         
-        // Clear and draw
+        // Clear canvas
         ctx.clearRect(0, 0, width, height)
-        ctx.strokeText(subtitle.text, x, y)
-        ctx.fillText(subtitle.text, x, y)
+        
+        // Render subtitle with advanced styling
+        this.renderSubtitleOnCanvas(ctx, subtitle.text, width, height, style)
 
         const blob = await new Promise<Blob>((resolve) => {
           canvas.toBlob((blob) => resolve(blob!), 'image/png', 0.8)
@@ -525,6 +512,166 @@ export class SubtitleProcessor {
     }
 
     return subtitleImages
+  }
+
+  private renderSubtitleOnCanvas(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    canvasWidth: number,
+    canvasHeight: number,
+    style: SubtitleStyle
+  ): void {
+    // Calculate positioning
+    const { x, y, textAlign, textBaseline } = this.calculateCanvasPosition(canvasWidth, canvasHeight, style)
+    
+    // Configure basic text properties
+    ctx.font = `${style.fontSize}px '${style.fontFamily}', Arial, sans-serif`
+    ctx.textAlign = textAlign
+    ctx.textBaseline = textBaseline
+    
+    // Apply global opacity if specified
+    ctx.globalAlpha = style.opacity || 1
+    
+    // Measure text for background box
+    const metrics = ctx.measureText(text)
+    const textWidth = metrics.width
+    const textHeight = style.fontSize * 1.2 // Approximate height
+    
+    // Draw background box if specified
+    if (style.backgroundColor && style.backgroundColor !== 'transparent') {
+      this.drawBackgroundBox(ctx, x, y, textWidth, textHeight, style, textAlign, textBaseline)
+    }
+    
+    // Draw text outline/border if specified
+    if (style.outlineWidth && style.outlineWidth > 0) {
+      ctx.strokeStyle = style.outlineColor || '#000000'
+      ctx.lineWidth = style.outlineWidth * 2 // Double for better visibility
+      ctx.lineJoin = 'round'
+      ctx.lineCap = 'round'
+      ctx.strokeText(text, x, y)
+    }
+    
+    // Draw main text
+    ctx.fillStyle = style.fontColor
+    ctx.fillText(text, x, y)
+    
+    // Draw shadow if enabled
+    if (style.shadow) {
+      ctx.save()
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.8)'
+      ctx.shadowBlur = 4
+      ctx.shadowOffsetX = 2
+      ctx.shadowOffsetY = 2
+      ctx.fillText(text, x, y)
+      ctx.restore()
+    }
+    
+    // Reset global alpha
+    ctx.globalAlpha = 1
+  }
+
+  private calculateCanvasPosition(canvasWidth: number, canvasHeight: number, style: SubtitleStyle): {
+    x: number
+    y: number
+    textAlign: CanvasTextAlign
+    textBaseline: CanvasTextBaseline
+  } {
+    let x: number
+    let textAlign: CanvasTextAlign
+    
+    // Calculate horizontal position and alignment
+    const marginX = style.marginX || 0
+    
+    switch (style.alignment) {
+      case 'left':
+        x = 50 + marginX
+        textAlign = 'left'
+        break
+      case 'right':
+        x = canvasWidth - 50 + marginX
+        textAlign = 'right'
+        break
+      case 'center':
+      default:
+        x = canvasWidth / 2 + marginX
+        textAlign = 'center'
+        break
+    }
+    
+    // Calculate vertical position
+    let y: number
+    let textBaseline: CanvasTextBaseline
+    const marginY = style.marginY || 0
+    
+    switch (style.position) {
+      case 'top':
+        y = 50 + marginY
+        textBaseline = 'top'
+        break
+      case 'center':
+        y = canvasHeight / 2 + marginY
+        textBaseline = 'middle'
+        break
+      case 'bottom':
+      default:
+        y = canvasHeight - 50 + marginY
+        textBaseline = 'bottom'
+        break
+    }
+    
+    return { x, y, textAlign, textBaseline }
+  }
+
+  private drawBackgroundBox(
+    ctx: CanvasRenderingContext2D,
+    textX: number,
+    textY: number,
+    textWidth: number,
+    textHeight: number,
+    style: SubtitleStyle,
+    textAlign: CanvasTextAlign,
+    textBaseline: CanvasTextBaseline
+  ): void {
+    const padding = 8
+    let boxX: number
+    let boxY: number
+    
+    // Calculate box position based on text alignment
+    switch (textAlign) {
+      case 'left':
+        boxX = textX - padding
+        break
+      case 'right':
+        boxX = textX - textWidth - padding
+        break
+      case 'center':
+      default:
+        boxX = textX - textWidth / 2 - padding
+        break
+    }
+    
+    // Calculate box Y position based on baseline
+    switch (textBaseline) {
+      case 'top':
+        boxY = textY - padding
+        break
+      case 'middle':
+        boxY = textY - textHeight / 2 - padding
+        break
+      case 'bottom':
+      default:
+        boxY = textY - textHeight - padding
+        break
+    }
+    
+    // Set background color with opacity
+    ctx.fillStyle = style.backgroundColor!
+    
+    // Draw rectangle for background
+    const boxWidth = textWidth + padding * 2
+    const boxHeight = textHeight + padding * 2
+    
+    ctx.fillRect(boxX, boxY, boxWidth, boxHeight)
   }
 
   private async batchWriteFiles(
@@ -1051,9 +1198,8 @@ export class SubtitleProcessor {
     onLog: (message: string) => void,
     onProgress: (progress: number) => void
   ): Promise<string> {
-    // Always use optimized sequential processing
-    return await this.processVideoSequential(videoFile, subtitles, videoInfo, 'mp4', 
-      style.fontSize.toString(), style.fontColor, style.fontFamily, onLog, onProgress, options)
+    // Use canvas-based processing with full style support
+    return await this.processVideoSequential(videoFile, subtitles, videoInfo, 'mp4', style, onLog, onProgress, options)
   }
 
   // Subtitle Merging and Language Support

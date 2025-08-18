@@ -264,9 +264,7 @@ export function useVideoProcessing() {
           relevantSubtitles: videoStore.relevantSubtitles,
           videoInfo: videoStore.videoInfo,
           outputFormat: videoStore.outputFormat,
-          fontSize: videoStore.subtitleStyle.fontSize.toString(),
-          fontColor: videoStore.subtitleStyle.fontColor,
-          fontFamily: videoStore.subtitleStyle.fontFamily,
+          subtitleStyle: videoStore.subtitleStyle,
           processingOptions: videoStore.processingOptions
         },
         {
