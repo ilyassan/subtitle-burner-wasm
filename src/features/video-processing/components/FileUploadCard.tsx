@@ -1,6 +1,6 @@
 "use client"
 
-import React from 'react'
+import React, { useState } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,9 +19,65 @@ export function FileUploadCard({
   className = "",
   children 
 }: FileUploadProps & { children?: React.ReactNode }) {
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [dragCounter, setDragCounter] = useState(0)
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0] || null
     onFileChange(selectedFile)
+  }
+
+  const handleFileSelect = (selectedFile: File) => {
+    onFileChange(selectedFile)
+  }
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragCounter(prev => prev + 1)
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragOver(true)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragCounter(prev => prev - 1)
+    if (dragCounter === 1) {
+      setIsDragOver(false)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+    setDragCounter(0)
+    
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length > 0) {
+      const droppedFile = files[0]
+      // Validate file type
+      const acceptedTypes = accept.split(',').map(type => type.trim())
+      const isValidType = acceptedTypes.some(acceptType => {
+        if (acceptType.startsWith('.')) {
+          return droppedFile.name.toLowerCase().endsWith(acceptType.toLowerCase())
+        }
+        return droppedFile.type.match(acceptType.replace('*', '.*'))
+      })
+      
+      if (isValidType) {
+        handleFileSelect(droppedFile)
+      } else {
+        alert(`Please select a valid file type: ${accept}`)
+      }
+    }
   }
 
   const inputId = `${label.toLowerCase().replace(/\s+/g, '-')}-upload`
@@ -37,11 +93,31 @@ export function FileUploadCard({
       <CardContent>
         <Label
           htmlFor={inputId}
-          className="cursor-pointer border-2 border-dashed border-primary/30 rounded-lg p-6 flex flex-col items-center justify-center text-center hover:bg-secondary/50 transition-colors"
+          className={`cursor-pointer border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center text-center transition-all duration-200 ${
+            isDragOver 
+              ? 'border-primary bg-primary/10 scale-105' 
+              : 'border-primary/30 hover:bg-secondary/50 hover:border-primary/50'
+          }`}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
         >
-          <Icon className="w-8 h-8 text-primary mb-2" />
-          <span className="text-sm text-gray-600">
-            {file ? file.name : `Upload ${label.toLowerCase()}`}
+          <Icon className={`w-8 h-8 mb-2 transition-colors ${
+            isDragOver ? 'text-primary' : 'text-primary'
+          }`} />
+          <span className={`text-sm transition-colors ${
+            isDragOver ? 'text-primary font-medium' : 'text-gray-600'
+          }`}>
+            {isDragOver 
+              ? `Drop ${label.toLowerCase()} here` 
+              : file 
+                ? file.name 
+                : `Drop ${label.toLowerCase()} here or click to browse`
+            }
+          </span>
+          <span className="text-xs text-gray-400 mt-1">
+            {accept.includes('video') ? 'MP4, WebM, MOV' : 'SRT, VTT, ASS, SSA'}
           </span>
           {children}
           <Input
