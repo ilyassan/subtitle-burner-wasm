@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     title: "Advanced Video Subtitle Burner",
     description: "Professional video subtitle burning with advanced processing strategies",
     type: "website",
-    url: "https://subtitleburner.com",
+    url: "https://ilyassan.github.io/subtitle-burner-wasm/",
   },
   twitter: {
     card: "summary_large_image",
