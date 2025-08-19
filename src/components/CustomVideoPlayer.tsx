@@ -2,19 +2,21 @@
 
 import React, { useState, useRef, useEffect } from "react"
 
-import { Play, Pause, Volume2, VolumeX, Maximize2, SkipBack, SkipForward } from "lucide-react"
+import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 
 interface CustomVideoPlayerProps {
   src: string | null
   className?: string
   placeholder?: React.ReactNode
+  autoplay?: boolean
 }
 
 export const CustomVideoPlayer: React.FC<CustomVideoPlayerProps> = ({ 
   src, 
   className = "", 
-  placeholder 
+  placeholder,
+  autoplay = false
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -22,8 +24,7 @@ export const CustomVideoPlayer: React.FC<CustomVideoPlayerProps> = ({
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [volume, setVolume] = useState(100)
-  const [showControls, setShowControls] = useState(true)
-  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [showControls, setShowControls] = useState(false)  // Start with controls hidden
 
   const hideControlsTimer = useRef<NodeJS.Timeout | null>(null)
 
@@ -34,17 +35,32 @@ export const CustomVideoPlayer: React.FC<CustomVideoPlayerProps> = ({
     const updateTime = () => setCurrentTime(video.currentTime)
     const updateDuration = () => setDuration(video.duration)
     const handleEnd = () => setIsPlaying(false)
+    
+    const handleLoadedData = () => {
+      setDuration(video.duration)
+      // Auto-play when video is ready and autoplay is enabled
+      if (autoplay && src) {
+        video.play().then(() => {
+          setIsPlaying(true)
+        }).catch((error) => {
+          console.warn('Autoplay failed:', error)
+          // Autoplay failed, user interaction required
+        })
+      }
+    }
 
     video.addEventListener('timeupdate', updateTime)
     video.addEventListener('loadedmetadata', updateDuration)
+    video.addEventListener('loadeddata', handleLoadedData)
     video.addEventListener('ended', handleEnd)
 
     return () => {
       video.removeEventListener('timeupdate', updateTime)
       video.removeEventListener('loadedmetadata', updateDuration)
+      video.removeEventListener('loadeddata', handleLoadedData)
       video.removeEventListener('ended', handleEnd)
     }
-  }, [src])
+  }, [src, autoplay])
 
   const togglePlay = () => {
     const video = videoRef.current
@@ -91,23 +107,14 @@ export const CustomVideoPlayer: React.FC<CustomVideoPlayerProps> = ({
     video.currentTime = Math.max(0, Math.min(duration, video.currentTime + seconds))
   }
 
-  const toggleFullscreen = () => {
-    const container = videoRef.current?.parentElement
-    if (!container) return
-
-    if (!isFullscreen) {
-      container.requestFullscreen?.()
-    } else {
-      document.exitFullscreen?.()
-    }
-    setIsFullscreen(!isFullscreen)
-  }
 
   const showControlsTemporarily = () => {
-    setShowControls(true)
+    // Only auto-hide if playing and not hovering
     if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current)
     hideControlsTimer.current = setTimeout(() => {
-      if (isPlaying) setShowControls(false)
+      if (isPlaying) {
+        setShowControls(false)
+      }
     }, 3000)
   }
 
@@ -140,11 +147,17 @@ export const CustomVideoPlayer: React.FC<CustomVideoPlayerProps> = ({
       className={`relative bg-black rounded-xl overflow-hidden group ${className}`}
       onMouseEnter={() => setShowControls(true)}
       onMouseLeave={() => {
-        if (isPlaying) {
-          hideControlsTimer.current = setTimeout(() => setShowControls(false), 1000)
+        setShowControls(false)
+        if (hideControlsTimer.current) {
+          clearTimeout(hideControlsTimer.current)
         }
       }}
-      onMouseMove={showControlsTemporarily}
+      onMouseMove={() => {
+        if (!showControls) {
+          setShowControls(true)
+        }
+        showControlsTemporarily()
+      }}
     >
       <video
         ref={videoRef}
@@ -160,12 +173,14 @@ export const CustomVideoPlayer: React.FC<CustomVideoPlayerProps> = ({
         <div
           className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent transition-opacity duration-300"
         >
-        {/* Play/Pause Button Center */}
+        {/* Play/Pause Button Center - Only show on hover */}
         <button
           className="absolute inset-0 flex items-center justify-center"
           onClick={togglePlay}
         >
-          <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className={`w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center transition-opacity duration-300 ${
+            showControls ? 'opacity-100' : 'opacity-0'
+          }`}>
             {isPlaying ? (
               <Pause className="w-8 h-8 text-white" />
             ) : (
@@ -231,12 +246,6 @@ export const CustomVideoPlayer: React.FC<CustomVideoPlayerProps> = ({
               </div>
             </div>
 
-            <button
-              onClick={toggleFullscreen}
-              className="p-2 text-white/80 hover:text-white transition-colors"
-            >
-              <Maximize2 className="w-5 h-5" />
-            </button>
           </div>
         </div>
         </div>

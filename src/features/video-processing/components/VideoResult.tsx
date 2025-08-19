@@ -11,6 +11,7 @@ interface VideoResultProps {
   className?: string
   title?: string
   showTitle?: boolean
+  autoplay?: boolean
 }
 
 /**
@@ -22,7 +23,8 @@ export function VideoResult({
   outputFormat, 
   className = "",
   title = "Video Result",
-  showTitle = true 
+  showTitle = true,
+  autoplay = true  // Default to true for automatic playback
 }: VideoResultProps) {
   return (
     <div className={`space-y-6 ${className}`}>
@@ -38,6 +40,7 @@ export function VideoResult({
       <CustomVideoPlayer
         src={downloadUrl}
         className="w-full"
+        autoplay={autoplay && !!downloadUrl}  // Only autoplay if we have a video URL
         placeholder={
           <div className="text-center text-gray-400">
             <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
