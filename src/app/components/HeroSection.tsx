@@ -55,30 +55,30 @@ export function HeroSection({ children }: HeroSectionProps) {
         </header>
 
         {/* Hero Content */}
-        <div className="max-w-7xl mx-auto px-6 pt-12 pb-24">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-12 pb-24">
           <div className="text-center mb-16">
             <div>
-              <h2 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6">
+              <h2 className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-6">
                 In-Browser Subtitle
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-orange-600">
                   {" "}Burning
                 </span>
               </h2>
-              <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto leading-relaxed">
+              <p className="text-lg sm:text-xl text-gray-600 mb-8 max-w-3xl mx-auto leading-relaxed px-4">
                 Burn subtitles into your videos with high-quality in-browser processing. 
                 100% client-side processing, no uploads, complete privacy.
               </p>
-              <div className="flex items-center justify-center gap-4 text-sm text-gray-500">
+              <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 text-sm text-gray-500 px-4">
                 <div className="flex items-center gap-2">
                   <Shield className="w-4 h-4 text-green-500" />
                   <span>100% Offline</span>
                 </div>
-                <div className="w-1 h-1 bg-gray-300 rounded-full" />
+                <div className="w-1 h-1 bg-gray-300 rounded-full hidden sm:block" />
                 <div className="flex items-center gap-2">
                   <Zap className="w-4 h-4 text-orange-500" />
                   <span>Lightning Fast</span>
                 </div>
-                <div className="w-1 h-1 bg-gray-300 rounded-full" />
+                <div className="w-1 h-1 bg-gray-300 rounded-full hidden sm:block" />
                 <div className="flex items-center gap-2">
                   <Download className="w-4 h-4 text-blue-500" />
                   <span>Free Forever</span>
@@ -87,8 +87,8 @@ export function HeroSection({ children }: HeroSectionProps) {
             </div>
           </div>
 
-          {/* Main App Section */}
-          <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+          {/* Main App Section - Wider on mobile, max width on desktop */}
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl border border-gray-100 overflow-hidden mx-auto max-w-none sm:max-w-6xl">
             {children}
           </div>
         </div>

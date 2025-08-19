@@ -178,19 +178,19 @@ export const CustomVideoPlayer: React.FC<CustomVideoPlayerProps> = ({
           className="absolute inset-0 flex items-center justify-center"
           onClick={togglePlay}
         >
-          <div className={`w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center transition-opacity duration-300 ${
+          <div className={`w-12 h-12 sm:w-16 sm:h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center transition-opacity duration-300 ${
             showControls ? 'opacity-100' : 'opacity-0'
           }`}>
             {isPlaying ? (
-              <Pause className="w-8 h-8 text-white" />
+              <Pause className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
             ) : (
-              <Play className="w-8 h-8 text-white ml-1" />
+              <Play className="w-6 h-6 sm:w-8 sm:h-8 text-white ml-1" />
             )}
           </div>
         </button>
 
         {/* Bottom Controls */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3">
+        <div className="absolute bottom-0 left-0 right-0 p-2 sm:p-4 space-y-2 sm:space-y-3">
           {/* Progress Bar */}
           <div className="space-y-1">
             <Slider
@@ -208,29 +208,31 @@ export const CustomVideoPlayer: React.FC<CustomVideoPlayerProps> = ({
 
           {/* Control Buttons */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            {/* Mobile: Simplified controls */}
+            <div className="flex items-center justify-center gap-2 sm:gap-3 sm:justify-start">
               <button
                 onClick={() => skipTime(-10)}
-                className="p-2 text-white/80 hover:text-white transition-colors"
+                className="p-1 sm:p-2 text-white/80 hover:text-white transition-colors"
               >
-                <SkipBack className="w-5 h-5" />
+                <SkipBack className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
               
               <button
                 onClick={togglePlay}
-                className="p-2 text-white hover:text-orange-400 transition-colors"
+                className="p-1 sm:p-2 text-white hover:text-orange-400 transition-colors"
               >
-                {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
+                {isPlaying ? <Pause className="w-5 h-5 sm:w-6 sm:h-6" /> : <Play className="w-5 h-5 sm:w-6 sm:h-6" />}
               </button>
 
               <button
                 onClick={() => skipTime(10)}
-                className="p-2 text-white/80 hover:text-white transition-colors"
+                className="p-1 sm:p-2 text-white/80 hover:text-white transition-colors"
               >
-                <SkipForward className="w-5 h-5" />
+                <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
 
-              <div className="flex items-center gap-2">
+              {/* Volume controls - hidden on mobile, shown on larger screens */}
+              <div className="hidden sm:flex items-center gap-2 ml-2">
                 <button
                   onClick={toggleMute}
                   className="p-2 text-white/80 hover:text-white transition-colors"
@@ -244,6 +246,22 @@ export const CustomVideoPlayer: React.FC<CustomVideoPlayerProps> = ({
                   className="w-20"
                 />
               </div>
+            </div>
+            
+            {/* Mobile volume control - separate row */}
+            <div className="flex items-center justify-center gap-2 sm:hidden">
+              <button
+                onClick={toggleMute}
+                className="p-1 text-white/80 hover:text-white transition-colors"
+              >
+                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              </button>
+              <Slider
+                value={[volume]}
+                onValueChange={handleVolumeChange}
+                max={100}
+                className="w-24"
+              />
             </div>
 
           </div>

@@ -44,7 +44,7 @@ function QuickStartTab() {
   } = useVideoProcessing()
 
   return (
-    <div className="grid lg:grid-cols-2 gap-8 mb-8">
+    <div className="grid lg:grid-cols-2 gap-4 sm:gap-6 lg:gap-8 mb-6 sm:mb-8">
       {/* Left Side - Quick Start */}
       <PageSection title="Quick Start" icon={Zap}>
         <div className="space-y-4">
@@ -113,7 +113,7 @@ function AdvancedTab() {
           description="Fine-tune your subtitle processing with advanced options"
           icon={Settings}
         >
-          <div className="grid md:grid-cols-2 gap-6 mb-8">
+          <div className="grid md:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
             <VideoUploadSection />
             <SubtitleUploadSection />
           </div>
@@ -121,7 +121,7 @@ function AdvancedTab() {
       </div>
 
       {/* Advanced Controls and Preview */}
-      <div className="grid xl:grid-cols-2 gap-8 mb-8">
+      <div className="grid xl:grid-cols-2 gap-4 sm:gap-6 lg:gap-8 mb-6 sm:mb-8">
         {/* Left Side - Advanced Controls */}
         <div className="space-y-6 order-2 xl:order-1">
           <AdvancedSubtitleControls
@@ -139,7 +139,7 @@ function AdvancedTab() {
       </div>
 
       {/* Process Button */}
-      <div className="text-center space-y-4">
+      <div className="text-center space-y-3 sm:space-y-4">
         <ProcessingButton className="bg-primary hover:bg-primary/90 text-primary-foreground py-4 px-8 rounded-xl text-lg" />
         
         {/* Show processing progress if active */}
@@ -237,7 +237,7 @@ function VideoSubtitleBurnerCore() {
   ]
 
   return (
-    <div className="p-8 relative">
+    <div className="p-4 sm:p-6 lg:p-8 relative">
       {/* Battery Indicator - Top Left */}
       <BatteryIndicator />
       
