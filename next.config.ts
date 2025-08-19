@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   distDir: 'dist',
   trailingSlash: true,
   skipTrailingSlashRedirect: true,
+  basePath: process.env.NODE_ENV === 'production' ? '/subtitle-burner-wasm' : '',
+  assetPrefix: process.env.NODE_ENV === 'production' ? '/subtitle-burner-wasm/' : '',
   images: {
     unoptimized: true,
   },
