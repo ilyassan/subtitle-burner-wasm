@@ -37,6 +37,8 @@ jobs:
         run: npm install --prefer-offline --no-audit
 
       - name: Build with Next.js
+        env:
+          NEXT_PUBLIC_GA_MEASUREMENT_ID: G-6M4WK44QL0
         run: npm run build
 
       - name: Upload artifact

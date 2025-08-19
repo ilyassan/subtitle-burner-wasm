@@ -5,6 +5,7 @@ import { FileVideo, Download } from 'lucide-react'
 import { FileUploadCard } from './FileUploadCard'
 import { useVideoProcessing } from '@/hooks/useVideoProcessing'
 import { Button } from '@/components/ui/button'
+import { trackDownload } from '@/lib/gtag'
 
 /**
  * Video upload section component
@@ -16,6 +17,7 @@ const getAssetPath = (path: string) => {
 }
 
 const downloadSampleVideo = () => {
+  trackDownload('sample-video.mp4', 'video')
   const link = document.createElement('a')
   link.href = getAssetPath('/sample-video.mp4')
   link.download = 'sample-video.mp4'

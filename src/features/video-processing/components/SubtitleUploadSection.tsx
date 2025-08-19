@@ -5,6 +5,7 @@ import { FileText, Download } from 'lucide-react'
 import { FileUploadCard } from './FileUploadCard'
 import { useVideoProcessing } from '@/hooks/useVideoProcessing'
 import { Button } from '@/components/ui/button'
+import { trackDownload } from '@/lib/gtag'
 
 /**
  * Subtitle upload section component
@@ -16,6 +17,7 @@ const getAssetPath = (path: string) => {
 }
 
 const downloadSampleSubtitles = () => {
+  trackDownload('sample-subtitles.srt', 'subtitle')
   const link = document.createElement('a')
   link.href = getAssetPath('/sample-subtitles.srt')
   link.download = 'sample-subtitles.srt'
