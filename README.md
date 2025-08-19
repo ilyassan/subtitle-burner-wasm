@@ -4,11 +4,9 @@
 
 SubtitleBurner is a powerful, privacy-focused web application for burning subtitles directly into your videos. All processing is done 100% in your browser using WebAssembly, meaning your files never leave your computer.
 
-**Note:** A live demo link and screenshot are placeholders. You should replace them with your actual deployment URL and a screenshot of the application.
+**[➡️ Live Demo](https://ilyassan.github.io/subtitle-burner-wasm/)**
 
-**[➡️ Live Demo (Placeholder)](https://your-demo-link.com)**
-
-![SubtitleBurner Screenshot](placeholder.png)
+![SubtitleBurner Screenshot](https://ilyassan.github.io/subtitle-burner-wasm/hero-image.png)
 
 ## ✨ Key Features
 
