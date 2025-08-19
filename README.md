@@ -1,4 +1,4 @@
-# SubtitleBurner: Professional Subtitle Burning, In Your Browser
+# SubtitleBurner: In-Browser Subtitle Burning
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
@@ -17,7 +17,7 @@ SubtitleBurner is a powerful, privacy-focused web application for burning subtit
     *   **Quick Start Mode:** For fast and easy subtitle burning.
     *   **Advanced Mode:** Fine-tune font size, color, position, outline, and more.
     *   Live preview of subtitle styles.
-*   **⚙️ Professional Processing Options:** Control quality, compression (CRF), and processing threads for optimized output.
+*   **⚙️ Advanced Processing Options:** Control quality, compression (CRF), and processing threads for optimized output.
 *   ** M Universal Compatibility:** Supports all major video formats and subtitle formats (SRT, VTT, ASS, SSA).
 *   **📊 Performance Monitoring:** Keep an eye on memory usage during processing.
 

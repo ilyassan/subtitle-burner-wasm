@@ -15,7 +15,7 @@ export function FeaturesSection() {
             Core Functionalities
           </h3>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Everything you need for professional subtitle burning, 
+            Everything you need for in-browser subtitle burning, 
             powered by cutting-edge web technology.
           </p>
         </div>
@@ -33,7 +33,7 @@ export function FeaturesSection() {
           />
           <FeatureCard
             icon={Cpu}
-            title="Professional Quality"
+            title="High Quality"
             description="Multiple output formats, custom fonts, advanced styling options, and batch processing capabilities."
           />
           <FeatureCard

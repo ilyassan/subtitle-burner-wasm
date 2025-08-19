@@ -59,13 +59,13 @@ export function HeroSection({ children }: HeroSectionProps) {
           <div className="text-center mb-16">
             <div>
               <h2 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6">
-                Professional Subtitle
+                In-Browser Subtitle
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-orange-600">
                   {" "}Burning
                 </span>
               </h2>
               <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto leading-relaxed">
-                Burn subtitles into your videos with professional-grade quality. 
+                Burn subtitles into your videos with high-quality in-browser processing. 
                 100% client-side processing, no uploads, complete privacy.
               </p>
               <div className="flex items-center justify-center gap-4 text-sm text-gray-500">

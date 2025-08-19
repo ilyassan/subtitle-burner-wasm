@@ -69,7 +69,7 @@ export function ExportPresets({ onApplyPreset }: ExportPresetsProps) {
         threads: 0,
         useDiskCache: true
       },
-      tags: ["Quality", "Professional"]
+      tags: ["Quality", "Advanced"]
     },
     {
       name: "Mobile Optimized",
@@ -98,7 +98,7 @@ export function ExportPresets({ onApplyPreset }: ExportPresetsProps) {
     },
     {
       name: "Cinema Style",
-      description: "Professional cinema-style subtitles",
+      description: "Cinema-style subtitles with elegant styling",
       icon: <Film className="h-4 w-4" />,
       style: {
         fontSize: 22,
@@ -120,7 +120,7 @@ export function ExportPresets({ onApplyPreset }: ExportPresetsProps) {
         threads: 0,
         useDiskCache: true
       },
-      tags: ["Cinema", "Professional", "Elegant"]
+      tags: ["Cinema", "Advanced", "Elegant"]
     },
     {
       name: "Gaming/Streaming",

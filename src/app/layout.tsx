@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Advanced Video Subtitle Burner",
-  description: "Professional video subtitle burning with advanced processing strategies, batch support, and intelligent optimization",
+  description: "In-browser video subtitle burning with advanced processing strategies, batch support, and intelligent optimization",
   keywords: ["video", "subtitles", "ffmpeg", "wasm", "burn", "captions", "batch", "processing"],
   authors: [{ name: "Video Subtitle Burner" }],
   manifest: "/manifest.json",
@@ -18,14 +18,14 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "Advanced Video Subtitle Burner",
-    description: "Professional video subtitle burning with advanced processing strategies",
+    description: "In-browser video subtitle burning with advanced processing strategies",
     type: "website",
     url: "https://ilyassan.github.io/subtitle-burner-wasm/",
   },
   twitter: {
     card: "summary_large_image",
     title: "Advanced Video Subtitle Burner",
-    description: "Professional video subtitle burning with advanced processing strategies",
+    description: "In-browser video subtitle burning with advanced processing strategies",
   },
   robots: "index, follow",
   category: "video processing",

@@ -1,7 +1,7 @@
 {
   "name": "Advanced Video Subtitle Burner",
   "short_name": "SubtitleBurner",
-  "description": "Professional video subtitle burning with advanced processing strategies and batch support",
+  "description": "In-browser video subtitle burning with advanced processing strategies and batch support",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",

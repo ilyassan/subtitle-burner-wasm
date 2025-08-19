@@ -110,7 +110,7 @@ function AdvancedTab() {
       <div className="text-center mb-8">
         <PageSection 
           title="Advanced Controls" 
-          description="Fine-tune your subtitle processing with professional options"
+          description="Fine-tune your subtitle processing with advanced options"
           icon={Settings}
         >
           <div className="grid md:grid-cols-2 gap-6 mb-8">
