@@ -36,10 +36,6 @@ export function FAQSection() {
             answer="Processing time depends on your video length, quality settings, and device performance. Our smart optimization automatically filters irrelevant subtitles to reduce processing time. Most videos process in 2-5 minutes."
           />
           <FAQItem
-            question="Can I process multiple videos at once?"
-            answer="Yes! We support batch processing where you can upload multiple subtitle files with one video, or process multiple videos sequentially. This is perfect for content creators with multiple language versions."
-          />
-          <FAQItem
             question="Do I need to install anything?"
             answer="No installation required! SubtitleBurner runs entirely in your web browser. Just visit the website and start burning subtitles immediately. Works on any modern browser."
           />
