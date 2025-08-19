@@ -10,9 +10,14 @@ import { Button } from '@/components/ui/button'
  * Video upload section component
  * Handles video file upload with proper validation and feedback
  */
+const getAssetPath = (path: string) => {
+  const basePath = process.env.NODE_ENV === 'production' ? '/subtitle-burner-wasm' : ''
+  return `${basePath}${path}`
+}
+
 const downloadSampleVideo = () => {
   const link = document.createElement('a')
-  link.href = '/sample-video.mp4'
+  link.href = getAssetPath('/sample-video.mp4')
   link.download = 'sample-video.mp4'
   document.body.appendChild(link)
   link.click()

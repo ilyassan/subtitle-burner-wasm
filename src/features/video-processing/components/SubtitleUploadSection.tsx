@@ -10,9 +10,14 @@ import { Button } from '@/components/ui/button'
  * Subtitle upload section component
  * Handles subtitle file upload with stats display
  */
+const getAssetPath = (path: string) => {
+  const basePath = process.env.NODE_ENV === 'production' ? '/subtitle-burner-wasm' : ''
+  return `${basePath}${path}`
+}
+
 const downloadSampleSubtitles = () => {
   const link = document.createElement('a')
-  link.href = '/sample-subtitles.srt'
+  link.href = getAssetPath('/sample-subtitles.srt')
   link.download = 'sample-subtitles.srt'
   document.body.appendChild(link)
   link.click()
