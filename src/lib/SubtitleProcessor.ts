@@ -254,7 +254,7 @@ export class SubtitleProcessor {
         ctx.fillText(subtitle.text, x, y)
 
         const blob = await new Promise<Blob>((resolve) => {
-          canvas.toBlob((blob) => resolve(blob!), 'image/png')
+          canvas.toBlob((blob) => resolve(blob!), 'image/png', 1.0)
         })
 
         const arrayBuffer = await blob.arrayBuffer()
@@ -353,7 +353,8 @@ export class SubtitleProcessor {
         videoInfo.height, 
         subtitleStyle, 
         (current, total) => progressManager.updateSubtitleProgress(current, total, `Creating subtitle image ${current}/${total}`),
-        onLog
+        onLog,
+        options
       )
 
       // Images are already written to FFmpeg disk cache during creation for memory optimization
@@ -364,17 +365,38 @@ export class SubtitleProcessor {
       progressManager.updatePhase(100, "All subtitle images created")
 
       // Phase 2: FFmpeg setup (register inputs, build filter graph)
-      progressManager.setPhase('preparing-ffmpeg' as any, "Preparing FFmpeg setup...")
-      await this.processWithUnifiedFilter(
-        videoFileName,
-        outputFileName,
-        relevantSubtitles,
-        outputFormat,
-        (prog) => progressManager.updatePhase(prog, `Processing video: ${prog.toFixed(1)}%`),
-        onLog,
-        options,
-        videoInfo.duration
-      )
+      progressManager.setPhase('preparing-ffmpeg', "Preparing FFmpeg setup...")
+      
+      try {
+        await this.processWithUnifiedFilter(
+          videoFileName,
+          outputFileName,
+          relevantSubtitles,
+          outputFormat,
+          (prog) => progressManager.updatePhase(prog, `Processing video: ${prog.toFixed(1)}%`),
+          onLog,
+          options,
+          videoInfo.duration
+        )
+      } catch (error) {
+        // If high quality mode fails with FS error, fallback to balanced quality
+        if (options?.quality === 'high' && error instanceof Error && error.message.includes('FS error')) {
+          onLog("⚠️ High quality mode failed with FS error, falling back to balanced quality...")
+          const fallbackOptions = { ...options, quality: 'balanced' as const }
+          await this.processWithUnifiedFilter(
+            videoFileName,
+            outputFileName,
+            relevantSubtitles,
+            outputFormat,
+            (prog) => progressManager.updatePhase(prog, `Processing video (fallback): ${prog.toFixed(1)}%`),
+            onLog,
+            fallbackOptions,
+            videoInfo.duration
+          )
+        } else {
+          throw error
+        }
+      }
 
       // Read final output file and complete phase 2
       progressManager.updatePhase(100, "Reading final output file...")
@@ -426,7 +448,8 @@ export class SubtitleProcessor {
     height: number,
     style: SubtitleStyle,
     onProgress: (current: number, total: number) => void,
-    onLog: (message: string) => void
+    onLog: (message: string) => void,
+    processingOptions?: ProcessingOptions
   ): Promise<{[key: string]: Uint8Array}> {
     const subtitleImages: {[key: string]: Uint8Array} = {}
     
@@ -434,14 +457,16 @@ export class SubtitleProcessor {
     const memoryUsageMB = this.getMemoryUsage() / (1024 * 1024)
     const availableMemoryMB = this.memoryLimit - memoryUsageMB
     
-    // Calculate optimal batch size for memory management
+    // Calculate optimal batch size for memory management - more conservative for high quality
     let batchSize: number
+    const isHighQuality = processingOptions?.quality === 'high'
+    
     if (subtitles.length > 100) {
-      batchSize = Math.max(2, Math.min(5, Math.floor(availableMemoryMB / 10))) // Conservative for large subtitle sets
+      batchSize = Math.max(1, Math.min(isHighQuality ? 3 : 5, Math.floor(availableMemoryMB / 10))) // More conservative for high quality
     } else if (subtitles.length > 50) {
-      batchSize = Math.max(3, Math.min(8, Math.floor(availableMemoryMB / 8)))
+      batchSize = Math.max(2, Math.min(isHighQuality ? 5 : 8, Math.floor(availableMemoryMB / 8)))
     } else {
-      batchSize = Math.max(5, Math.min(10, Math.floor(availableMemoryMB / 5)))
+      batchSize = Math.max(3, Math.min(isHighQuality ? 7 : 10, Math.floor(availableMemoryMB / 5)))
     }
     
     onLog(`🖼️ Creating ${subtitles.length} subtitle images with advanced styling (batches of ${batchSize})`)
@@ -454,11 +479,48 @@ export class SubtitleProcessor {
       onLog(`🔲 Outline: ${style.outlineWidth}px ${style.outlineColor || '#000000'}`)
     }
 
-    // Pre-create canvas for reuse
+    // Create ultra-high-quality canvas using devicePixelRatio + additional scaling
     const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
-    const ctx = canvas.getContext('2d')!
+    
+    // Use devicePixelRatio + additional 2x scaling for maximum quality
+    const dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1
+    const additionalScale = 2.0 // Extra scaling for superior text quality
+    const totalScale = dpr * additionalScale
+    
+    const canvasWidth = Math.round(width * totalScale)
+    const canvasHeight = Math.round(height * totalScale)
+    
+    // Set canvas physical dimensions for ultra-high resolution
+    canvas.width = canvasWidth
+    canvas.height = canvasHeight
+    const ctx = canvas.getContext('2d', { 
+      alpha: true,
+      desynchronized: false,
+      colorSpace: 'srgb'
+    })!
+    
+    // Enable all quality enhancement features
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    
+    // Scale context for high-resolution rendering
+    ctx.scale(totalScale, totalScale)
+    
+    onLog(`🎨 Ultra-HD canvas: ${canvasWidth}x${canvasHeight} (DPR: ${dpr}, Additional: ${additionalScale}x, Total: ${totalScale}x)`)
+    
+    // Create final output canvas at exact video resolution with advanced options
+    const outputCanvas = document.createElement('canvas')
+    outputCanvas.width = width
+    outputCanvas.height = height
+    const outputCtx = outputCanvas.getContext('2d', {
+      alpha: true,
+      desynchronized: false,
+      colorSpace: 'srgb'
+    })!
+    
+    // Configure output context for maximum downsampling quality
+    outputCtx.imageSmoothingEnabled = true
+    outputCtx.imageSmoothingQuality = 'high'
     
     for (let batchStart = 0; batchStart < subtitles.length; batchStart += batchSize) {
       // Check memory pressure before each batch
@@ -479,14 +541,43 @@ export class SubtitleProcessor {
       for (let i = 0; i < batch.length; i++) {
         const subtitle = batch[i]
         
-        // Clear canvas
+        // Clear high-res canvas (use original dimensions since context is scaled)
         ctx.clearRect(0, 0, width, height)
         
-        // Render subtitle with advanced styling
+        // Render subtitle with advanced styling on high-res canvas
         this.renderSubtitleOnCanvas(ctx, subtitle.text, width, height, style)
+        
+        // Multi-step downsampling for maximum quality (recommended by research)
+        outputCtx.clearRect(0, 0, width, height)
+        
+        // If scaling factor is high, use multi-step downsampling for better quality
+        if (totalScale > 2) {
+          // Create intermediate canvas for multi-step downsampling
+          const intermediateCanvas = document.createElement('canvas')
+          const intermediateScale = Math.ceil(totalScale / 2)
+          const intermediateWidth = Math.round(width * intermediateScale)
+          const intermediateHeight = Math.round(height * intermediateScale)
+          
+          intermediateCanvas.width = intermediateWidth
+          intermediateCanvas.height = intermediateHeight
+          const intermediateCtx = intermediateCanvas.getContext('2d')!
+          intermediateCtx.imageSmoothingEnabled = true
+          intermediateCtx.imageSmoothingQuality = 'high'
+          
+          // Step 1: Scale from ultra-high to intermediate resolution
+          intermediateCtx.drawImage(canvas, 0, 0, canvasWidth, canvasHeight, 0, 0, intermediateWidth, intermediateHeight)
+          
+          // Step 2: Scale from intermediate to final resolution
+          outputCtx.drawImage(intermediateCanvas, 0, 0, intermediateWidth, intermediateHeight, 0, 0, width, height)
+        } else {
+          // Single-step downsampling for moderate scaling
+          outputCtx.drawImage(canvas, 0, 0, canvasWidth, canvasHeight, 0, 0, width, height)
+        }
 
+        // Export with highest quality PNG settings
         const blob = await new Promise<Blob>((resolve) => {
-          canvas.toBlob((blob) => resolve(blob!), 'image/png', 0.8)
+          // PNG is lossless, but ensure maximum compatibility and quality
+          outputCanvas.toBlob((blob) => resolve(blob!), 'image/png')
         })
 
         const arrayBuffer = await blob.arrayBuffer()
@@ -524,10 +615,24 @@ export class SubtitleProcessor {
     // Calculate positioning
     const { x, y, textAlign, textBaseline } = this.calculateCanvasPosition(canvasWidth, canvasHeight, style)
     
-    // Configure basic text properties
-    ctx.font = `${style.fontSize}px '${style.fontFamily}', Arial, sans-serif`
+    // Configure ultra-high-quality text properties with pixel-perfect alignment
+    ctx.font = `bold ${style.fontSize}px '${style.fontFamily}', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif`
     ctx.textAlign = textAlign
     ctx.textBaseline = textBaseline
+    
+    // Enable maximum quality text rendering
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    
+    // Advanced text rendering properties for maximum crispness
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
+    ctx.miterLimit = 10
+    
+    // Ensure sub-pixel positioning is handled correctly
+    const pixelRatio = 1 // We're already scaled, so use 1:1 pixel mapping
+    const adjustedX = Math.round(x * pixelRatio) / pixelRatio
+    const adjustedY = Math.round(y * pixelRatio) / pixelRatio
     
     // Apply global opacity if specified
     ctx.globalAlpha = style.opacity || 1
@@ -537,32 +642,49 @@ export class SubtitleProcessor {
     const textWidth = metrics.width
     const textHeight = style.fontSize * 1.2 // Approximate height
     
-    // Draw background box if specified
+    // Draw background box if specified (using pixel-perfect positioning)
     if (style.backgroundColor && style.backgroundColor !== 'transparent') {
-      this.drawBackgroundBox(ctx, x, y, textWidth, textHeight, style, textAlign, textBaseline)
+      this.drawBackgroundBox(ctx, adjustedX, adjustedY, textWidth, textHeight, style, textAlign, textBaseline)
     }
     
-    // Draw text outline/border if specified
+    // Draw ultra-high-quality text outline/border if specified
     if (style.outlineWidth && style.outlineWidth > 0) {
       ctx.strokeStyle = style.outlineColor || '#000000'
-      ctx.lineWidth = style.outlineWidth * 2 // Double for better visibility
-      ctx.lineJoin = 'round'
-      ctx.lineCap = 'round'
-      ctx.strokeText(text, x, y)
+      // Optimal outline width for high-resolution rendering
+      ctx.lineWidth = style.outlineWidth * 1.5
+      ctx.miterLimit = 4
+      
+      // Multi-pass outline rendering for maximum smoothness
+      ctx.save()
+      ctx.globalCompositeOperation = 'destination-over' // Draw outline behind text
+      for (let i = 0; i < 3; i++) {
+        const offset = i * 0.5
+        ctx.strokeText(text, adjustedX + offset, adjustedY + offset)
+        ctx.strokeText(text, adjustedX - offset, adjustedY - offset)
+        ctx.strokeText(text, adjustedX + offset, adjustedY - offset)
+        ctx.strokeText(text, adjustedX - offset, adjustedY + offset)
+      }
+      ctx.restore()
     }
     
-    // Draw main text
+    // Draw main text with pixel-perfect positioning
     ctx.fillStyle = style.fontColor
-    ctx.fillText(text, x, y)
+    ctx.fillText(text, adjustedX, adjustedY)
     
-    // Draw shadow if enabled
+    // Draw ultra-high-quality shadow if enabled
     if (style.shadow) {
       ctx.save()
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.8)'
-      ctx.shadowBlur = 4
-      ctx.shadowOffsetX = 2
-      ctx.shadowOffsetY = 2
-      ctx.fillText(text, x, y)
+      ctx.globalCompositeOperation = 'destination-over' // Draw shadow behind text
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.7)'
+      // Enhanced shadow properties for high-resolution rendering
+      ctx.shadowBlur = 8
+      ctx.shadowOffsetX = 4
+      ctx.shadowOffsetY = 4
+      ctx.filter = 'blur(0.5px)' // Additional blur for smoothness
+      
+      // Draw shadow with pixel-perfect positioning
+      ctx.fillStyle = style.fontColor
+      ctx.fillText(text, adjustedX, adjustedY)
       ctx.restore()
     }
     
@@ -740,14 +862,13 @@ export class SubtitleProcessor {
     
     // Determine optimal settings based on options with more aggressive differences
     const preset = options?.quality === 'fast' ? 'ultrafast' : 
-                  options?.quality === 'high' ? 'slow' : 'medium'
+                  options?.quality === 'high' ? 'medium' : 'medium'
     const crf = options?.crf || (options?.quality === 'fast' ? 28 : 
-                                options?.quality === 'high' ? 18 : 23)
+                                options?.quality === 'high' ? 18 : 20)
     const threads = options?.threads || 0 // 0 means auto (all available)
     
     // Additional quality-based optimizations
-    const tune = options?.quality === 'fast' ? 'fastdecode' : 
-                options?.quality === 'high' ? 'film' : 'fastdecode'
+    const tune = options?.quality === 'fast' ? 'fastdecode' : 'fastdecode'
     const bframes = options?.quality === 'fast' ? '0' : 
                    options?.quality === 'high' ? '3' : '2'
     const refs = options?.quality === 'fast' ? '1' : 
@@ -776,10 +897,14 @@ export class SubtitleProcessor {
       '-bf', bframes, // Dynamic B-frames based on quality
       '-refs', refs, // Dynamic reference frames based on quality
       '-g', options?.quality === 'fast' ? '120' : '250', // Shorter GOP for fast mode
-      '-bufsize', `${memoryLimitKB}k`, // Apply memory limit to FFmpeg buffer
-      '-maxrate', `${Math.floor(memoryLimitKB / 4)}k`, // Set max bitrate based on memory
+      // Remove potentially problematic buffer/rate limiting for high quality mode
+      ...(options?.quality !== 'high' ? [
+        '-bufsize', `${memoryLimitKB}k`, // Apply memory limit to FFmpeg buffer
+        '-maxrate', `${Math.floor(memoryLimitKB / 4)}k` // Set max bitrate based on memory
+      ] : []),
       '-pix_fmt', 'yuv420p', // Ensure compatibility
       ...(options?.quality === 'fast' ? ['-flags', '+cgop'] : []), // Fast encoding flags
+      // High quality mode: rely on preset and CRF only for now to avoid FS errors
       '-y', outputFileName
     ]
     
@@ -807,7 +932,7 @@ export class SubtitleProcessor {
       // Stream mapping indicates filter graph preparation
       if (/^Stream mapping:/i.test(message)) {
         // Transition to dedicated filter graph phase
-        progressManager.setPhase('building-filtergraph' as any, 'Starting filter graph build...')
+        progressManager.setPhase('building-filtergraph', 'Starting filter graph build...')
         progressManager.updatePhase(1, 'Analyzing streams and overlays...')
       }
       // During filter graph phase, count mapped PNG overlays to show true progress

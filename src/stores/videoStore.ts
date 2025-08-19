@@ -104,9 +104,9 @@ const initialState: VideoProcessingState = {
     opacity: 1
   },
   processingOptions: {
-    quality: "balanced",
-    crf: 23,
-    memoryLimit: 500,
+    quality: "high",
+    crf: 18,
+    memoryLimit: 800,
     threads: 0,
     useDiskCache: true
   },
